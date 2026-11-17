@@ -23,7 +23,8 @@ def test_state_bertahan_lintas_instance(tmp_path):
 
 def _cli(kode_dir, tmp_path, *args):
     env = {**os.environ, "PYTHONPATH": str(kode_dir), "RUNTIME_DIR": str(tmp_path), "LLM_MODE": "mock"}
-    return subprocess.run([sys.executable, "-m", "app.cli", *args], env=env, capture_output=True, text=True, timeout=60)
+    return subprocess.run([sys.executable, "-m", "app.cli", *args], env=env, cwd=kode_dir,
+                          capture_output=True, text=True, timeout=60)
 
 
 def test_cli_jalankan_lalu_lanjut_dari_proses_baru(kode_dir, tmp_path):

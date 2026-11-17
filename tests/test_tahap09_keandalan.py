@@ -34,12 +34,12 @@ def test_crash_setelah_bayar_lalu_resume_tidak_bayar_ganda(kode_dir, tmp_path):
     env = {**os.environ, "PYTHONPATH": str(kode_dir), "RUNTIME_DIR": str(tmp_path), "LLM_MODE": "mock"}
     jalankan = [sys.executable, "-m", "app.cli"]
     r = subprocess.run(jalankan + ["jalankan", "Proses KLM-002", "--thread", "crash"],
-                       env={**env, "CRASH_SETELAH_BAYAR": "1"}, capture_output=True, text=True, timeout=60)
+                       env={**env, "CRASH_SETELAH_BAYAR": "1"}, cwd=kode_dir, capture_output=True, text=True, timeout=60)
     assert r.returncode == 1, "proses harus mati di tengah node bayar"
     ledger = json.loads((tmp_path / "pembayaran.json").read_text())
     assert len(ledger) == 1, "transfer sudah terjadi sebelum crash"
 
-    r = subprocess.run(jalankan + ["lanjut", "--thread", "crash"], env=env, capture_output=True, text=True, timeout=60)
+    r = subprocess.run(jalankan + ["lanjut", "--thread", "crash"], env=env, cwd=kode_dir, capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stderr
     assert "duplikat=True" in r.stdout, "node bayar diulang, tapi kunci idempotensi mencegah transfer kedua"
     assert len(json.loads((tmp_path / "pembayaran.json").read_text())) == 1
