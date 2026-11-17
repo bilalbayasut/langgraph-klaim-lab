@@ -1,0 +1,7 @@
+{
+  "EMP-01": {"nama": "Andi Pratama", "departemen": "Sales", "atasan": "Rina (Sales Manager)", "sisa_anggaran": 8000000},
+  "EMP-02": {"nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Marketing Lead)", "sisa_anggaran": 3000000},
+  "EMP-03": {"nama": "Budi Santoso", "departemen": "IT", "atasan": "Maya (IT Manager)", "sisa_anggaran": 6000000},
+  "EMP-04": {"nama": "Dewi Lestari", "departemen": "Finance", "atasan": "Hadi (CFO)", "sisa_anggaran": 5000000},
+  "EMP-05": {"nama": "Eko Saputra", "departemen": "Operasional", "atasan": "Lina (Ops Manager)", "sisa_anggaran": 400000}
+}
