@@ -41,6 +41,7 @@ Lab ini dibagi mengikuti tiga hari pelatihan. Satu sistem yang sama berkembang d
 |---|---|---|
 | [0](#langkah-0--persiapan) | Persiapan | uv, `.env`, mock vs live, `pytest` |
 | **Hari 1** | **Single agent** | |
+| [Konsep](#konsep-hari-1--workflow-atau-agent) | Diskusi, tanpa kode | **Workflow vs agent**, kapan agent tidak perlu, peta pola (routing, planner-executor, HITL) |
 | [1](#langkah-1--graph-pertama-1-node-1-superstep) | Graph 1 node + `app.py` | State, node, edge, `compile`, `invoke`, `stream`, **superstep** |
 | [2](#langkah-2--node-kedua-membaca-data) | Membaca data klaim | Tool = fungsi biasa, edge berurutan |
 | [3](#langkah-3--aturan-bisnis-dan-reducer) | Memeriksa item dan memutuskan | **Reducer**, keputusan oleh kode |
@@ -130,12 +131,12 @@ superstep 2: muat_klaim
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
     log = ["periksa_item KLM-002-1: ok"]
-superstep 3: cek_karyawan
-    profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
-    log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
     log = ["periksa_item KLM-002-2: ok"]
+superstep 3: cek_karyawan
+    profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
+    log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_penuh", "alasan": "semua item sesuai aturan", "total_diajukan": 180000, "total_di…
     log = ["putuskan: setujui_penuh, perlu_persetujuan=False"]
@@ -245,6 +246,72 @@ Mulai Langkah 1, setiap graph bisa kamu jalankan dan amati dengan tiga cara:
 ---
 
 # Hari 1 — Single agent: workflow, structured output, function calling, MCP, RAG, evaluasi
+
+## Konsep Hari 1 — Workflow atau agent?
+
+Bagian ini diskusi, tanpa kode. Pertanyaan yang dijawab: **seberapa banyak keputusan yang boleh diserahkan ke LLM?** Jawabannya menentukan bentuk graph yang akan kamu bangun sepanjang lab.
+
+### Workflow vs agent
+
+| | Workflow | Agent |
+|---|---|---|
+| Siapa menentukan langkah berikutnya | **Kode** (edge yang kamu tulis) | **LLM** (memilih tool, memutuskan kapan selesai) |
+| Jalurnya | Tetap, bisa digambar sebelum jalan | Baru diketahui saat jalan |
+| Cocok untuk | Proses yang aturannya jelas dan harus bisa diaudit | Pertanyaan bebas, langkah yang tidak bisa ditebak |
+| Biaya dan latensi | Rendah, bisa ditebak | Lebih tinggi, berubah-ubah (beberapa panggilan LLM per permintaan) |
+| Cara gagal | Gagal dengan jelas (error, test merah) | Gagal diam-diam (tool salah, jawaban yakin tapi keliru) |
+| Cara menguji | Unit test biasa | Butuh dataset evaluasi (Langkah 9) |
+
+Di antara keduanya ada spektrum. Di lab ini kamu membangun **keduanya dalam satu graph**:
+
+```mermaid
+flowchart LR
+  START --> router["router (LLM memilih jalur, Langkah 5)"]
+  router -.klaim.-> W["jalur klaim = WORKFLOW<br/>muat → periksa → putuskan (kode)"]
+  router -.asisten.-> A["agent asisten = AGENT<br/>LLM memilih tool sendiri (Langkah 6–8)"]
+  W --> END
+  A --> END
+```
+
+- **Jalur klaim adalah workflow.** Keputusan uang (setujui, potong, tolak) dibuat oleh kode di `putuskan`. LLM hanya membantu di pinggir: membaca maksud permintaan (Langkah 5) dan menulis memo (Langkah 12).
+- **Agent `asisten` adalah agent.** Pertanyaan seperti "status KLM-003 apa, dan sisa anggaran Sari berapa?" tidak punya urutan tetap, jadi LLM yang memilih tool mana yang dipanggil dan kapan berhenti.
+
+### Kapan agent tidak diperlukan
+
+Mulailah dari solusi paling sederhana, lalu naik hanya kalau perlu: **fungsi biasa → workflow → workflow dengan satu panggilan LLM → agent**. Agent biasanya **tidak** diperlukan kalau:
+
+1. **Langkahnya bisa kamu tulis sebagai flowchart.** Kalau bisa digambar, tulis sebagai edge. Jangan minta LLM menebak urutan yang sudah kamu ketahui.
+2. **Keputusannya punya aturan tertulis** (plafon, persentase, tanggal). Aturan bisnis di kode bisa diuji dan diaudit. Di LLM, aturan bisa "dilupakan" atau dibujuk lewat prompt injection (Hari 3).
+3. **Kesalahan mahal atau tidak bisa dibatalkan** (bayar, hapus, kirim). Kalaupun LLM terlibat, aksinya tetap lewat gerbang persetujuan (Langkah 14 dan 24).
+4. **Volumenya tinggi dan latensinya ketat.** Setiap putaran agent berarti satu panggilan LLM lagi.
+5. **Satu panggilan LLM sudah cukup.** Mengklasifikasi atau mengekstrak data cukup dengan structured output (Langkah 5), tanpa loop.
+
+Agent **layak** dipakai kalau inputnya bebas, kombinasi tool-nya banyak dan tidak bisa ditebak, dan salah langkah masih murah atau bisa dikoreksi.
+
+### Pola yang akan kamu temui
+
+| Pola | Inti | Di lab ini |
+|---|---|---|
+| **Routing** | Satu titik memilih satu dari beberapa jalur | Langkah 4 (oleh kode), Langkah 5 (oleh LLM) |
+| **Tool use / ReAct** | LLM memanggil tool, membaca hasilnya, lalu memutuskan lagi | Langkah 6–8 |
+| **Planner-executor** | Satu LLM menyusun rencana, eksekutor menjalankan langkah demi langkah. Rencananya bisa diperiksa sebelum dijalankan | Langkah 16 |
+| **Human-in-the-loop** | Graph berhenti, menunggu manusia, lalu lanjut dari titik yang sama | Langkah 14 (persetujuan atasan), Langkah 24 (izin tool berisiko) |
+| **Orchestrator-workers, supervisor, handoff** | Pekerjaan dibagi ke beberapa worker atau agent | Hari 2: Langkah 11 dan 16 |
+| **Evaluator-optimizer** | Satu LLM menulis, yang lain menilai, ulangi sampai lolos | Hari 2: Langkah 12 |
+
+Human-in-the-loop dan planner-executor baru diimplementasikan di Hari 2 karena butuh **checkpointer** (Langkah 13): graph yang berhenti menunggu manusia harus bisa menyimpan state-nya.
+
+### Diskusi (10 menit, per tim)
+
+Ambil satu proses dari use case batch-mu (misalnya laporan kekurangan air di kebun, atau order B2B yang tertahan):
+
+1. Gambar alurnya. Bagian mana yang **workflow** (aturannya jelas) dan bagian mana yang butuh **agent** (inputnya bebas)?
+2. Keputusan mana yang **tidak boleh** dibuat LLM? Siapa manusia yang harus menyetujuinya?
+3. Aplikasi internal apa yang harus dihubungkan? Itu calon **tool** (Langkah 6) dan **MCP server** (Langkah 7).
+
+Simpan jawabannya. Kamu akan memakainya lagi di capstone (Langkah 25).
+
+---
 
 ## Langkah 1 — Graph pertama: 1 node, 1 superstep
 
@@ -3015,12 +3082,12 @@ superstep 3: periksa_item
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-003-1", "kategori": "peralatan", "diajukan": 2100000, "disetujui": 2100000, "stat…
     log = ["periksa_item KLM-003-1: ok"]
-superstep 3: cek_karyawan
-    profil = {"karyawan_id": "EMP-03", "nama": "Budi Santoso", "departemen": "IT", "atasan": "Maya (IT Manager)"…
-    log = ["cek_karyawan: Budi Santoso, sisa anggaran Rp6.000.000"]
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-003-3", "kategori": "hiburan", "diajukan": 250000, "disetujui": 0, "status": "dit…
     log = ["periksa_item KLM-003-3: ditolak"]
+superstep 3: cek_karyawan
+    profil = {"karyawan_id": "EMP-03", "nama": "Budi Santoso", "departemen": "IT", "atasan": "Maya (IT Manager)"…
+    log = ["cek_karyawan: Budi Santoso, sisa anggaran Rp6.000.000"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_sebagian", "alasan": "sebagian item dipotong atau ditolak", "total_diajukan": 370…
     log = ["putuskan: setujui_sebagian, perlu_persetujuan=True"]
@@ -3545,14 +3612,14 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
     log = ["muat_klaim: 2 item"]
 superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
+    log = ["periksa_item KLM-002-1: ok"]
+superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
     log = ["periksa_item KLM-002-2: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
     log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
-superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
-    log = ["periksa_item KLM-002-1: ok"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_penuh", "alasan": "semua item sesuai aturan", "total_diajukan": 180000, "total_di…
     log = ["putuskan: setujui_penuh, perlu_persetujuan=False"]
@@ -3589,16 +3656,16 @@ thread: demo-13
 
 $ uv run app.py --thread demo-13 --riwayat
 step  sumber  next                           checkpoint_id
-   8  loop    -                              1f1e4d66-fb05-61f8-8008-8f1310711ca9
-   7  loop    nilai_memo                     1f1e4d66-fb04-6550-8007-81383c4ac455
-   6  loop    tulis_memo                     1f1e4d66-fb03-6678-8006-882f2c35a694
-   5  loop    nilai_memo                     1f1e4d66-fb02-6700-8005-258ffe9c49d6
-   4  loop    tulis_memo                     1f1e4d66-fb01-6670-8004-9dad76579384
-   3  loop    putuskan                       1f1e4d66-fb00-6676-8003-08bacba3fe8e
-   2  loop    periksa_item, periksa_item, ce 1f1e4d66-fafc-6ada-8002-005ae45be19d
-   1  loop    muat_klaim                     1f1e4d66-fafb-6496-8001-fc3339e9987e
-   0  loop    router                         1f1e4d66-faf9-65b0-8000-09507965e9cd
-  -1  input   __start__                      1f1e4d66-faf7-6b52-bfff-12c66c6a42b2
+   8  loop    -                              1f1e4e48-a57f-6b88-8008-411e7880d512
+   7  loop    nilai_memo                     1f1e4e48-a57e-6c06-8007-6652191e4254
+   6  loop    tulis_memo                     1f1e4e48-a57d-69b4-8006-bc485f685e28
+   5  loop    nilai_memo                     1f1e4e48-a57c-67d0-8005-9e12b93979c6
+   4  loop    tulis_memo                     1f1e4e48-a57b-6556-8004-dfeaf15b56d4
+   3  loop    putuskan                       1f1e4e48-a57a-6480-8003-2850f37be78b
+   2  loop    periksa_item, periksa_item, ce 1f1e4e48-a575-6e76-8002-cbfccf8632f0
+   1  loop    muat_klaim                     1f1e4e48-a574-6350-8001-498a51d9e73f
+   0  loop    router                         1f1e4e48-a571-6fd8-8000-7cf39b95fad5
+  -1  input   __start__                      1f1e4e48-a56f-6c74-bfff-edea43aa39fd
 ```
 <!-- /output -->
 
@@ -4041,11 +4108,11 @@ superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-001-1", "kategori": "hotel", "diajukan": 650000, "disetujui": 650000, "status": "…
     log = ["periksa_item KLM-001-1: ok"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-001-3", "kategori": "transport", "diajukan": 220000, "disetujui": 220000, "status…
-    log = ["periksa_item KLM-001-3: ok"]
-superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-001-2", "kategori": "makan", "diajukan": 180000, "disetujui": 150000, "status": "…
     log = ["periksa_item KLM-001-2: dipotong"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-001-3", "kategori": "transport", "diajukan": 220000, "disetujui": 220000, "status…
+    log = ["periksa_item KLM-001-3: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-01", "nama": "Andi Pratama", "departemen": "Sales", "atasan": "Rina (Sales Man…
     log = ["cek_karyawan: Andi Pratama, sisa anggaran Rp8.000.000"]
@@ -4387,11 +4454,11 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
     log = ["muat_klaim: 2 item"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
-    log = ["periksa_item KLM-002-1: ok"]
-superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
     log = ["periksa_item KLM-002-2: ok"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
+    log = ["periksa_item KLM-002-1: ok"]
 superstep 3: cek_karyawan ✖ GAGAL: API HR timeout (panggilan ke-4)
 
 ✖ graph berhenti: HRTimeoutError: API HR timeout (panggilan ke-4)
@@ -4463,11 +4530,11 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
     log = ["muat_klaim: 2 item"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
-    log = ["periksa_item KLM-002-2: ok"]
-superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
     log = ["periksa_item KLM-002-1: ok"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
+    log = ["periksa_item KLM-002-2: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
     log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
@@ -4493,14 +4560,14 @@ superstep 8: nilai_memo
 
 $ uv run app.py --thread crash-15 --lanjut
 superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
+    log = ["periksa_item KLM-002-2: ok"]
+superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
     log = ["periksa_item KLM-002-1: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
     log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
-superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
-    log = ["periksa_item KLM-002-2: ok"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_penuh", "alasan": "semua item sesuai aturan", "total_diajukan": 180000, "total_di…
     log = ["putuskan: setujui_penuh, perlu_persetujuan=False"]
@@ -4951,8 +5018,8 @@ $ uv run python -m app.pantau "Proses klaim KLM-002"
 ✔ router: router: klaim (menyebut nomor klaim)
 ✔ muat_klaim: muat_klaim: 2 item
 ✔ periksa_item: periksa_item KLM-002-2: ok
-✔ cek_karyawan: cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000
 ✔ periksa_item: periksa_item KLM-002-1: ok
+✔ cek_karyawan: cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000
 ✔ putuskan: putuskan: setujui_penuh, perlu_persetujuan=False
 ✔ tulis_memo: tulis_memo: draf ke-1
 ✔ nilai_memo: nilai_memo: skor 5, lolos=False
@@ -5025,9 +5092,9 @@ Bandingkan bentuk mentah setiap mode dengan `coba_stream.py`:
 $ uv run coba_stream.py updates
 {'router': {'rute': 'klaim', 'claim_id': 'KLM-002', 'log': ['router: klaim (menyebut nomor klaim)']}}
 {'muat_klaim': {'klaim': {'claim_id': 'KLM-002', 'karyawan_id': 'EMP-02', 'judul': 'Rapat vendor di Sudirman', 'tanggal': '2026-11-05', 'item': [{'item_id': 'KLM-002-1', 'kategori': 'transport', 'jumlah': 85000, 'ada_struk': True, 'keterangan': 'Taksi pulang pergi'}, {'item_id': 'KLM-002-2', 'kategori': 'makan', 'jumlah': 95000, 'ada_struk': True, 'keterangan': 'Makan siang'}]}, 'log': ['muat_klaim: 2 item']}}
-{'periksa_item': {'hasil_item': [{'item_id': 'KLM-002-1', 'kategori': 'transport', 'diajukan': 85000, 'disetujui': 85000, 'status': 'ok', 'alasan': 'sesuai aturan'}], 'log': ['periksa_item KLM-002-1: ok']}}
-{'periksa_item': {'hasil_item': [{'item_id': 'KLM-002-2', 'kategori': 'makan', 'diajukan': 95000, 'disetujui': 95000, 'status': 'ok', 'alasan': 'sesuai aturan'}], 'log': ['periksa_item KLM-002-2: ok']}}
 {'cek_karyawan': {'profil': {'karyawan_id': 'EMP-02', 'nama': 'Sari Wulandari', 'departemen': 'Marketing', 'atasan': 'Tono (Marketing Lead)', 'sisa_anggaran': 3000000, 'nik': '3174024506920002', 'no_rekening': '0123456782', 'email': 'sari.wulandari@contoh.co.id'}, 'log': ['cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000']}}
+{'periksa_item': {'hasil_item': [{'item_id': 'KLM-002-2', 'kategori': 'makan', 'diajukan': 95000, 'disetujui': 95000, 'status': 'ok', 'alasan': 'sesuai aturan'}], 'log': ['periksa_item KLM-002-2: ok']}}
+{'periksa_item': {'hasil_item': [{'item_id': 'KLM-002-1', 'kategori': 'transport', 'diajukan': 85000, 'disetujui': 85000, 'status': 'ok', 'alasan': 'sesuai aturan'}], 'log': ['periksa_item KLM-002-1: ok']}}
 … (7 baris berikutnya dipotong)
 ```
 <!-- /output -->
@@ -5302,13 +5369,13 @@ def jalankan(graph, masukan, config=None) -> None:
 $ uv run app.py "Berapa sisa anggaran Sari, dan bolehkah klaim hotel tanpa struk?" --thread demo-18 > /dev/null
 
 $ uv run python -m app.jejak demo-18
-graph LangGraph                1237.3 ms
-  node  router                      0.5 ms  superstep 1
-  node  asisten                     0.6 ms  superstep 2
-  node  alat                     1231.2 ms  superstep 3
-    tool  profil_karyawan           553.4 ms
-    tool  cari_kebijakan           1229.7 ms
-  node  asisten                     0.6 ms  superstep 4
+graph LangGraph                1315.2 ms
+  node  router                      0.7 ms  superstep 1
+  node  asisten                     0.7 ms  superstep 2
+  node  alat                     1307.6 ms  superstep 3
+    tool  profil_karyawan           576.3 ms
+    tool  cari_kebijakan           1306.1 ms
+  node  asisten                     0.7 ms  superstep 4
 ```
 <!-- /output -->
 
@@ -5941,14 +6008,14 @@ superstep 2: muat_klaim
     peringatan = ["KLM-004-1: keterangan berisi pola prompt injection"]
     log = ["muat_klaim: 2 item"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-004-1", "kategori": "hotel", "diajukan": 900000, "disetujui": 750000, "status": "…
-    log = ["periksa_item KLM-004-1: dipotong"]
-superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-004-2", "kategori": "transport", "diajukan": 280000, "disetujui": 280000, "status…
     log = ["periksa_item KLM-004-2: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-04", "nama": "Dewi Lestari", "departemen": "Finance", "atasan": "Hadi (CFO)", …
     log = ["cek_karyawan: Dewi Lestari, sisa anggaran Rp5.000.000"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-004-1", "kategori": "hotel", "diajukan": 900000, "disetujui": 750000, "status": "…
+    log = ["periksa_item KLM-004-1: dipotong"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_sebagian", "alasan": "sebagian item dipotong atau ditolak", "total_diajukan": 118…
     log = ["putuskan: setujui_sebagian, perlu_persetujuan=True"]
