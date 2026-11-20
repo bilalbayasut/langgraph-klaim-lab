@@ -1,7 +1,7 @@
 [project]
 name = "langgraph-klaim-lab"
-version = "0.1.0"
-description = "Lab LangGraph dari nol: agent klaim reimbursement karyawan (router, paralel, Send, evaluator-optimizer, human-in-the-loop, checkpoint, Studio)"
+version = "0.2.0"
+description = "Lab LangGraph dari nol, bertahap: agent klaim reimbursement karyawan (superstep, paralel, Send, RAG ChromaDB, evaluator-optimizer, human-in-the-loop, checkpoint, Studio)"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 # Versi dikunci supaya perilaku lab sama dengan yang sudah dites.
@@ -13,16 +13,33 @@ dependencies = [
     "langchain-openai==1.7.3",
     "pydantic==2.13.5",
     "python-dotenv==1.2.4",
+    "chromadb==1.5.9",
+    "scikit-learn==1.9.1",
+    "grandalf==0.8",
+    "pytest==9.2.0",
 ]
 
 [dependency-groups]
 dev = [
-    "pytest==9.2.0",
     "langgraph-cli[inmem]==0.4.43",
 ]
 
-[tool.uv]
-package = false
+# Perintah bantu lab (kode di folder lab/, bukan bagian yang kamu tulis):
+#   uv run chat                           -> chat interaktif di terminal: ketik permintaan, dapat jawaban
+#   uv run lihat "Proses klaim KLM-002"   -> jalankan graph app/ dan tampilkan tiap superstep
+#   uv run cek 3                          -> jalankan test langkah 1 sampai 3
+[project.scripts]
+chat = "lab.chat:main"
+lihat = "lab.lihat:main"
+cek = "lab.cek:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["lab"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-p no:cacheprovider"

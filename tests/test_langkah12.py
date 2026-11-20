@@ -1,24 +1,34 @@
-"""Tahap 7: graph lengkap, interrupt + Command(resume), efek samping setelah persetujuan."""
+"""Langkah 12: interrupt + Command(resume), efek samping setelah persetujuan."""
 
+import pytest
+from conftest import cfg
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
 from app import tools
 from app.graph import build_graph
 
 
-def cfg(t):
-    return {"configurable": {"thread_id": t}}
+def _g():
+    return build_graph(InMemorySaver())
+
+
+def test_bayar_idempoten():
+    a = tools.bayar("KLM-X", 1000)
+    b = tools.bayar("KLM-X", 1000)
+    assert (a["duplikat"], b["duplikat"]) == (False, True) and a["ref"] == b["ref"]
+    assert len(tools.baca_ledger()) == 1
 
 
 def test_auto_approve_tanpa_manusia():
-    g = build_graph()
+    g = _g()
     s = g.invoke({"permintaan": "Proses klaim KLM-002"}, cfg("a"))
     assert s["status_akhir"] == "dibayar" and s["pembayaran"]["jumlah"] == 180000
     assert g.get_state(cfg("a")).next == ()
 
 
 def test_interrupt_lalu_setujui():
-    g = build_graph()
+    g = _g()
     s = g.invoke({"permintaan": "Proses klaim KLM-001"}, cfg("b"))
     assert "__interrupt__" in s
     payload = s["__interrupt__"][0].value
@@ -31,37 +41,49 @@ def test_interrupt_lalu_setujui():
     assert len(tools.baca_ledger()) == 1
 
 
-def test_resume_string_dan_tolak():
-    g = build_graph()
+def test_resume_string_tolak():
+    g = _g()
     g.invoke({"permintaan": "Proses KLM-003"}, cfg("c"))
     s = g.invoke(Command(resume="tolak"), cfg("c"))
     assert s["status_akhir"] == "ditolak_atasan" and tools.baca_ledger() == {}
 
 
 def test_revisi_kembali_ke_penulis_lalu_berhenti_lagi():
-    g = build_graph()
+    g = _g()
     g.invoke({"permintaan": "Proses KLM-001"}, cfg("d"))
     s = g.invoke(Command(resume={"aksi": "revisi", "catatan": "sebut nama hotel"}), cfg("d"))
     assert "__interrupt__" in s, "setelah revisi, memo baru harus disetujui lagi"
     assert s["persetujuan"]["catatan"] == "sebut nama hotel"
-    assert sum("tulis_memo" in l for l in s["log"]) >= 3
+    assert sum(b.startswith("tulis_memo") for b in s["log"]) >= 3
 
 
 def test_injeksi_tidak_mengubah_keputusan():
-    g = build_graph()
-    s = g.invoke({"permintaan": "Proses KLM-004"}, cfg("e"))
+    s = _g().invoke({"permintaan": "Proses KLM-004"}, cfg("e"))
     p = s["__interrupt__"][0].value
     assert p["keputusan"] == "disetujui sebagian" and p["total_disetujui"] == "Rp1.030.000"
-    assert p["peringatan"]
-    assert "APPROVED" not in p["memo"]
+    assert p["peringatan"] and "APPROVED" not in p["memo"]
 
 
 def test_tolak_otomatis_tanpa_atasan():
-    s = build_graph().invoke({"permintaan": "Proses KLM-005"}, cfg("f"))
+    s = _g().invoke({"permintaan": "Proses KLM-005"}, cfg("f"))
     assert s["status_akhir"] == "ditolak_otomatis" and "__interrupt__" not in s
 
 
-def test_rute_kebijakan_dan_klarifikasi():
+def test_resume_tanpa_checkpointer_gagal():
     g = build_graph()
-    assert g.invoke({"permintaan": "Berapa batas hotel per malam?"}, cfg("g"))["status_akhir"] == "dijawab"
-    assert g.invoke({"permintaan": "halo"}, cfg("h"))["status_akhir"] == "butuh_klarifikasi"
+    assert "__interrupt__" in g.invoke({"permintaan": "Proses KLM-001"}, cfg("g"))
+    with pytest.raises(RuntimeError, match="checkpointer"):
+        g.invoke(Command(resume="setujui"), cfg("g"))
+
+
+def test_chat_terminal_menjawab_interrupt():
+    """Di `uv run chat`, interrupt dijawab langsung sebagai atasan."""
+    import os
+    import subprocess
+    import sys
+
+    from lab.kode import ROOT
+
+    r = subprocess.run([sys.executable, "-m", "lab.chat", "--diam"], input="Proses klaim KLM-001\nsetujui\n", cwd=ROOT,
+                       env=dict(os.environ), capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0 and "PERSETUJUAN ATASAN" in r.stdout and "dibayar" in r.stdout, r.stdout + r.stderr

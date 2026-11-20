@@ -1,73 +1,67 @@
 # langgraph-klaim-lab
 
-Lab belajar **LangGraph dari nol**, satu proyek utuh: agent **klaim reimbursement karyawan**.
+Lab belajar **LangGraph dari nol, langkah demi langkah**. Satu proyek utuh: agent **klaim reimbursement karyawan**.
 
-Versi sederhana dari `ggf-qc-agent` (domainnya jauh lebih mudah), tapi keluasan materi LangGraph-nya sama: router dengan structured output, fan-out paralel dan join, map-reduce dengan `Send`, evaluator-optimizer, human-in-the-loop (`interrupt`), checkpoint SQLite dan resume lintas proses, `RetryPolicy`, efek samping idempoten, guardrail prompt injection, streaming, **LangGraph Studio**, dan pola orkestrasi supervisor / handoff / planner-executor.
+Kamu mulai dari graph 1 node (1 superstep), lalu menambah satu konsep per langkah sampai graph lengkap:
 
-👉 **Mulai dari [`LAB.md`](LAB.md).** Isinya 14 tahap (0–13), masing-masing dengan spesifikasi, test, eksperimen, dan petunjuk.
+> state & superstep → edge berurutan → reducer → conditional edge → paralel & join → map-reduce `Send` → LLM structured output → guardrail → **RAG ChromaDB** → loop evaluator-optimizer → checkpointer & time travel → human-in-the-loop (`interrupt`) → `RetryPolicy` & idempotensi → streaming → **LangGraph Studio** → supervisor / handoff / planner → LLM sungguhan
 
-## Isi folder
+Domainnya jauh lebih sederhana daripada `ggf-qc-agent`, tapi keluasan materi LangGraph-nya sama.
 
-```
-langgraph-klaim-lab/
-├── LAB.md               # panduan lab tahap demi tahap  ← mulai di sini
-├── app/                 # KAMU yang menulis isinya (Tahap 0: buat foldernya)
-├── tests/               # spesifikasi per tahap: test_tahap01_tools.py ... test_tahap12_pola.py
-├── data/
-│   ├── klaim.json       # 5 klaim latihan (KLM-001 ... KLM-005)
-│   ├── karyawan.json    # profil + sisa anggaran (API HR tiruan)
-│   ├── kebijakan.json   # aturan yang dipakai kode
-│   └── kebijakan/*.md   # aturan versi teks (untuk RAG mini)
-├── _kunci/              # kunci jawaban (app/ lengkap + langgraph.json). Jangan dibuka sebelum buntu.
-├── .env.example         # konfigurasi; default LLM_MODE=mock (tanpa API key)
-└── pyproject.toml, uv.lock
-```
+👉 **Mulai dari [`LAB.md`](LAB.md)** (Langkah 0–17, lengkap dengan kode, contoh output, eksperimen, dan test).
 
 ## Quick start
 
 ```bash
 cd ~/Learning/langgraph-klaim-lab
 uv sync
-cp .env.example .env            # bila belum ada
-KUNCI=1 uv run pytest -q        # kunci jawaban: 55 passed (environment sehat)
-mkdir -p app && touch app/__init__.py
-uv run pytest tests/test_tahap01_tools.py -q   # mulai Tahap 1: merah dulu, lalu buat hijau
+cp -n .env.example .env                       # LLM_MODE=mock: tanpa API key
+KUNCI=akhir uv run cek                        # semua kunci jawaban lolos = environment sehat
+KUNCI=akhir uv run chat                       # coba sistem jadinya: ketik "Proses klaim KLM-001"
+mkdir -p app && touch app/__init__.py         # lalu kerjakan Langkah 1
 ```
 
-Lihat sistem jadinya (versi kunci), sebelum mulai menulis:
+## Alat bantu
+
+| Perintah | Kegunaan |
+|---|---|
+| `uv run chat` | **Chat di terminal**: ketik permintaan, dapat jawaban; interrupt dijawab langsung sebagai atasan; kode `app/` dimuat ulang otomatis |
+| `uv run lihat "Proses klaim KLM-002"` | Jalankan graph di `app/` dan tampilkan **setiap superstep**: node yang jalan, apa yang ditulis ke state, node berikutnya |
+| `uv run lihat ... --ringkas` / `--lengkap` | Satu baris per superstep / isi state lengkap |
+| `uv run lihat --thread t1 --lanjut setujui` | Jawab interrupt (human-in-the-loop) dari proses baru |
+| `uv run lihat --thread t1 --riwayat` / `--dari <id>` | Daftar checkpoint / time travel (replay, fork) |
+| `uv run lihat ... --mode updates` | Stream mentah (`updates`, `values`, `custom`, `messages`, `debug`) |
+| `uv run lihat --gambar` | Gambar graph (ASCII + Mermaid) |
+| `uv run cek 5` | Test langkah 1 sampai 5 (`--hanya` untuk langkah 5 saja) |
+| `uv run langgraph dev` | LangGraph Studio di browser |
+| F5 di VS Code | Debugger dengan breakpoint di node (`.vscode/launch.json`) |
+| `KUNCI=5 uv run lihat ...` / `KUNCI=5 uv run cek 5` | Jalankan / uji kunci jawaban langkah 5 |
+
+## Isi folder
+
+```
+langgraph-klaim-lab/
+├── LAB.md               # panduan lab langkah demi langkah  ← mulai di sini
+├── app/                 # KAMU yang menulis isinya
+├── tests/               # test_langkah01.py ... test_langkah17.py
+├── lab/                 # alat bantu: chat.py, lihat.py, cek.py, kunci.py (tidak perlu ditulis)
+├── data/
+│   ├── klaim.json       # 5 klaim latihan (KLM-001 ... KLM-005)
+│   ├── karyawan.json    # profil + sisa anggaran ("API HR")
+│   ├── kebijakan.json   # aturan yang dipakai kode
+│   └── kebijakan/*.md   # aturan versi teks (untuk RAG ChromaDB)
+├── _kunci/langkah-NN/   # kunci jawaban per langkah (dibangkitkan dari LAB.md)
+├── _arsip/              # versi lama lab (sebelum dirombak) + kode app/ lamamu
+├── .env.example         # konfigurasi; default LLM_MODE=mock
+└── pyproject.toml, uv.lock
+```
+
+## Untuk pengelola lab
+
+Semua kode kunci jawaban berasal dari blok kode di LAB.md (komentar `<!-- kode: ... -->`). Setelah mengubah LAB.md:
 
 ```bash
-cd _kunci
-uv run python -m app.cli jalankan "Proses klaim KLM-001" --thread demo-1   # berhenti menunggu atasan
-uv run python -m app.cli lanjut --thread demo-1 --aksi setujui              # proses baru, lanjut dari checkpoint
-uv run langgraph dev                                                        # buka Studio di browser
+uv run python -m lab.kunci --uji --output   # bangun ulang _kunci/, uji langkah N dengan test 1..N, isi contoh output
 ```
-
-## Alur graph akhir
-
-```mermaid
-flowchart TD
-  START --> router
-  router -->|klaim| muat_klaim
-  router -->|kebijakan| jawab_kebijakan --> END1[END]
-  router -->|klarifikasi| klarifikasi --> END2[END]
-  muat_klaim --> cek_karyawan
-  muat_klaim -.Send x N.-> periksa_item
-  cek_karyawan --> putuskan
-  periksa_item --> putuskan
-  putuskan --> tulis_memo --> nilai_memo
-  nilai_memo -.belum lolos.-> tulis_memo
-  nilai_memo -.perlu atasan.-> persetujuan
-  nilai_memo -.auto-approve.-> bayar
-  nilai_memo -.tolak.-> selesai
-  persetujuan -.setujui.-> bayar --> selesai --> END3[END]
-  persetujuan -.revisi.-> tulis_memo
-  persetujuan -.tolak.-> selesai
-```
-
-## LLM
-
-- Default **mock**: setiap pemanggilan LLM punya fallback deterministik. Gratis, cepat, cocok untuk test dan Studio.
-- **Live** (Tahap 13): endpoint OpenAI-compatible apa pun, yaitu Sumopod, vLLM lokal (seperti di notebook Colab Pertemuan 5), atau Ollama. Atur di `.env`.
 
 Semua data di `data/` sintetis.

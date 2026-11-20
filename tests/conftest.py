@@ -1,24 +1,22 @@
 """Konfigurasi test.
 
 Default: test menguji kode KAMU di ./app
-KUNCI=1 uv run pytest  -> menguji kunci jawaban di ./_kunci/app (untuk membandingkan)
+KUNCI=5 uv run cek 5      -> menguji kunci jawaban langkah 5 (_kunci/langkah-05/app)
+KUNCI=akhir uv run cek    -> menguji kunci jawaban terakhir
 """
-
-import os
-import sys
-from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
-KODE = ROOT / "_kunci" if os.getenv("KUNCI") == "1" else ROOT
-sys.path.insert(0, str(KODE))
+from lab.kode import kode_dir, pasang_sys_path
+
+KODE = pasang_sys_path()
 
 
 @pytest.fixture(autouse=True)
 def env_latihan(monkeypatch, tmp_path):
-    """Setiap test: mode mock, runtime di folder sementara, tanpa simulasi gangguan."""
+    """Setiap test: mode mock, runtime (SQLite, ChromaDB, ledger) di folder sementara, tanpa simulasi gangguan."""
     monkeypatch.setenv("LLM_MODE", "mock")
+    monkeypatch.setenv("EMBEDDING", "hash")
     monkeypatch.setenv("RUNTIME_DIR", str(tmp_path))
     monkeypatch.setenv("HR_GAGAL_N_KALI", "0")
     monkeypatch.setenv("CRASH_SETELAH_BAYAR", "0")
@@ -26,6 +24,7 @@ def env_latihan(monkeypatch, tmp_path):
     monkeypatch.setenv("MAX_REVISI", "2")
     try:
         from app import tools
+
         tools.reset_hr()
     except (ImportError, AttributeError):
         pass
@@ -33,6 +32,9 @@ def env_latihan(monkeypatch, tmp_path):
 
 
 @pytest.fixture
-def kode_dir() -> Path:
-    """Folder yang berisi package app yang sedang dites (untuk test subprocess)."""
-    return KODE
+def kode() -> object:
+    return kode_dir()
+
+
+def cfg(thread: str) -> dict:
+    return {"configurable": {"thread_id": thread}}

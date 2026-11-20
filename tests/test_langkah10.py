@@ -1,10 +1,8 @@
-"""Tahap 6: loop evaluator-optimizer dengan batas iterasi."""
+"""Langkah 10: loop evaluator-optimizer dengan batas iterasi."""
 
-from langgraph.graph import END, START, StateGraph
-
-from app.nodes import cek_memo_aturan, nilai_memo, rute_setelah_nilai, tulis_memo
-from app.state import KlaimState
 from app import tools
+from app.graph import build_graph
+from app.nodes import cek_memo_aturan, nilai_memo, rute_setelah_nilai, tulis_memo
 
 
 def _state_dasar(cid="KLM-001"):
@@ -23,7 +21,7 @@ def test_cek_memo_aturan():
     assert any("APPROVED" in m for m in cek_memo_aturan(baik + " APPROVED", "KLM-001", k))
 
 
-def test_draf_pertama_mock_sengaja_kurang():
+def test_draf_pertama_mock_ditolak_draf_kedua_lolos():
     s = _state_dasar()
     d1 = tulis_memo(s)
     assert d1["jumlah_draf"] == 1 and "Rp1.020.000" not in d1["draf_memo"]
@@ -38,21 +36,25 @@ def test_rute_setelah_nilai():
     k = _state_dasar()["keputusan"]
     gagal, lolos = {"lolos": False, "masalah": ["x"]}, {"lolos": True, "masalah": []}
     assert rute_setelah_nilai({"penilaian": gagal, "jumlah_draf": 1, "keputusan": k}) == "tulis_memo"
-    assert rute_setelah_nilai({"penilaian": gagal, "jumlah_draf": 3, "keputusan": k}) == "persetujuan", "jatah revisi habis"
-    assert rute_setelah_nilai({"penilaian": lolos, "jumlah_draf": 1, "keputusan": k}) == "persetujuan"
-    assert rute_setelah_nilai({"penilaian": lolos, "jumlah_draf": 1, "keputusan": {**k, "perlu_persetujuan": False}}) == "bayar"
-    assert rute_setelah_nilai({"penilaian": lolos, "jumlah_draf": 1, "keputusan": {**k, "aksi": "tolak"}}) == "selesai"
+    assert rute_setelah_nilai({"penilaian": gagal, "jumlah_draf": 3, "keputusan": k}) != "tulis_memo", "jatah habis"
+    assert rute_setelah_nilai({"penilaian": lolos, "jumlah_draf": 1, "keputusan": k}) != "tulis_memo"
+
+
+def test_loop_di_graph():
+    s = build_graph().invoke({"permintaan": "Proses klaim KLM-002"})
+    assert s["jumlah_draf"] == 2 and s["penilaian"]["lolos"] is True
+    assert sum(b.startswith("tulis_memo") for b in s["log"]) == 2
+
+
+def test_tanpa_jatah_revisi(monkeypatch):
+    monkeypatch.setenv("MAX_REVISI", "0")
+    s = build_graph().invoke({"permintaan": "Proses klaim KLM-002"})
+    assert s["jumlah_draf"] == 1 and s["penilaian"]["lolos"] is False
 
 
 def test_loop_berhenti_di_batas(monkeypatch):
     import app.nodes as n
+
     monkeypatch.setattr(n, "cek_memo_aturan", lambda *a: ["selalu gagal"])
-    g = StateGraph(KlaimState)
-    g.add_node("tulis_memo", tulis_memo)
-    g.add_node("nilai_memo", nilai_memo)
-    g.add_edge(START, "tulis_memo")
-    g.add_edge("tulis_memo", "nilai_memo")
-    g.add_conditional_edges("nilai_memo", rute_setelah_nilai,
-                            {"tulis_memo": "tulis_memo", "persetujuan": END, "bayar": END, "selesai": END})
-    s = g.compile().invoke(_state_dasar())
+    s = build_graph().invoke({"permintaan": "Proses klaim KLM-002"})
     assert s["jumlah_draf"] == 3, "1 draf + MAX_REVISI(2) revisi, lalu berhenti"

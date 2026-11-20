@@ -1,0 +1,55 @@
+{
+  // Debugger VS Code untuk lab ini. Pasang breakpoint di app/*.py lalu tekan F5.
+  // Butuh ekstensi "Python" (ms-python.python) dan interpreter .venv (Ctrl+Shift+P > Python: Select Interpreter).
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "chat (terminal interaktif)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "lab.chat",
+      "cwd": "${workspaceFolder}",
+      "env": {"LLM_MODE": "mock"},
+      "justMyCode": true,
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "lihat: jalankan graph",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "lab.lihat",
+      "args": ["${input:permintaan}"],
+      "cwd": "${workspaceFolder}",
+      "env": {"LLM_MODE": "mock"},
+      "justMyCode": true,
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "lihat: lanjutkan thread (resume)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "lab.lihat",
+      "args": ["--thread", "${input:thread}", "--lanjut", "${input:aksi}"],
+      "cwd": "${workspaceFolder}",
+      "env": {"LLM_MODE": "mock"},
+      "justMyCode": true,
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "cek: test sampai langkah N",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "lab.cek",
+      "args": ["${input:langkah}", "-x"],
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true,
+      "console": "integratedTerminal"
+    }
+  ],
+  "inputs": [
+    {"id": "permintaan", "type": "promptString", "description": "Permintaan", "default": "Proses klaim KLM-001"},
+    {"id": "thread", "type": "promptString", "description": "thread_id", "default": "t1"},
+    {"id": "aksi", "type": "pickString", "description": "Jawaban atasan", "options": ["setujui", "revisi", "tolak"], "default": "setujui"},
+    {"id": "langkah", "type": "promptString", "description": "Sampai langkah", "default": "1"}
+  ]
+}
