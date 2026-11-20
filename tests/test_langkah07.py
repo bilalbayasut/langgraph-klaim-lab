@@ -32,3 +32,10 @@ def test_asisten_memakai_tool_dari_mcp():
 def test_server_tidak_mengimpor_kode_agent(kode):
     teks = (kode / "mcp_server" / "hr_finance.py").read_text()
     assert "from app" not in teks and "import app" not in teks
+
+
+def test_app_py_mcp():
+    from conftest import app_py
+
+    out = app_py("--mcp").stdout
+    assert "profil_karyawan" in out and "detail_klaim" in out

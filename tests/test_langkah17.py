@@ -42,3 +42,10 @@ def test_pantau(capsys):
     assert any(b.startswith("✔ router") for b in baris)
     assert any("mentransfer" in b for b in baris)
     assert "selesai" in capsys.readouterr().out
+
+
+def test_app_py_pantau():
+    from conftest import app_py
+
+    out = app_py("Proses klaim KLM-002", "--pantau").stdout
+    assert "✔ router" in out and "superstep" not in out

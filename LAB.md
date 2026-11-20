@@ -128,15 +128,15 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
     peringatan = []
     log = ["muat_klaim: 2 item"]
+superstep 3: cek_karyawan
+    profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
+    log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
     log = ["periksa_item KLM-002-1: ok"]
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
     log = ["periksa_item KLM-002-2: ok"]
-superstep 3: cek_karyawan
-    profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
-    log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_penuh", "alasan": "semua item sesuai aturan", "total_diajukan": 180000, "total_di…
     log = ["putuskan: setujui_penuh, perlu_persetujuan=False"]
@@ -1917,7 +1917,7 @@ if __name__ == "__main__":
 ```python
 """Client MCP minimal: tool dari MCP server -> tool LangChain yang bisa dipakai ToolNode.
 
-    uv run python -m app.mcp_klien        # tampilkan tool yang ditawarkan MCP server
+    uv run app.py --mcp        # tampilkan tool yang ditawarkan MCP server
 """
 
 from __future__ import annotations
@@ -1982,7 +1982,8 @@ def tool_mcp() -> tuple[StructuredTool, ...]:
     return tuple(ke_tool_langchain(t) for t in _jalankan(daftar_tool()))
 
 
-if __name__ == "__main__":
+def cetak_tool() -> None:
+    """Daftar tool yang ditawarkan MCP server (dipanggil oleh `uv run app.py --mcp`)."""
     for t in tool_mcp():
         print(f"{t.name}\n    {t.description.splitlines()[0]}\n    argumen: {t.args}")
 ```
@@ -2005,13 +2006,54 @@ def alat() -> list:
 
 Graph tidak berubah sama sekali. `pasang_asisten` tetap memanggil `alat()`, hanya isinya yang kini berasal dari MCP.
 
+➕ **`app.py`**: tambahkan. `main` **diganti**: ada opsi `--mcp`.
+
+<!-- kode: app.py | tambah -->
+```python
+from app.mcp_klien import cetak_tool
+
+
+def opsi_alat(parser) -> None:
+    """Opsi ALAT BANTU: memeriksa satu bagian sistem tanpa menjalankan graph."""
+    parser.add_argument("--mcp", action="store_true", help="daftar tool yang ditawarkan MCP server")
+
+
+def jalankan_alat(args) -> bool:
+    """Jalankan alat bantu yang dipilih. True = sudah ditangani, graph tidak perlu dijalankan."""
+    if args.mcp:
+        cetak_tool()
+    else:
+        return False
+    return True
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Jalankan graph klaim.")
+    parser.add_argument("permintaan", nargs="?", help='misal: "Proses klaim KLM-002"')
+    parser.add_argument("--gambar", action="store_true", help="gambar graph, lalu keluar")
+    opsi_alat(parser)
+    args = parser.parse_args()
+    if jalankan_alat(args):
+        return
+
+    graph = build_graph()
+    if args.gambar:
+        print(graph.get_graph().draw_ascii())
+        return
+    if not args.permintaan:
+        parser.error('isi permintaan, misal: uv run app.py "Proses klaim KLM-002"')
+    jalankan(graph, {"permintaan": args.permintaan})
+```
+
+`main` hanya bertambah dua baris: `opsi_alat(parser)` dan `if jalankan_alat(args): return`. Mulai sekarang, setiap langkah yang menambah alat bantu (`--rag` di Langkah 8, `--jejak` di Langkah 18, dan seterusnya) cukup mengganti dua fungsi kecil itu. `main` tidak perlu disentuh lagi untuk urusan ini.
+
 ### 7.3 Jalankan dan amati
 
 Tanya server tool apa saja yang ditawarkannya:
 
-<!-- output: 7 | uv run python -m app.mcp_klien -->
+<!-- output: 7 | uv run app.py --mcp -->
 ```text
-$ uv run python -m app.mcp_klien
+$ uv run app.py --mcp
 profil_karyawan
     Profil karyawan: departemen, atasan, dan sisa anggaran reimbursement tahun ini.
     argumen: {'nama': {'title': 'Nama', 'type': 'string'}}
@@ -2059,7 +2101,7 @@ Buka URL yang dicetak, klik **Connect**, lalu buka tab **Tools**. Pilih `profil_
 
 ### 7.5 Eksperimen
 
-1. **Tambah tool di server, tanpa mengubah agent.** Di `hr_finance.py`, tambahkan tool `daftar_karyawan_departemen(departemen: str) -> str`. Jalankan `uv run python -m app.mcp_klien`: tool baru langsung muncul. Dengan `LLM_MODE=live`, tanyakan *"Siapa saja karyawan di departemen IT?"*. Agent memakai tool baru itu tanpa satu baris pun berubah di `app/`.
+1. **Tambah tool di server, tanpa mengubah agent.** Di `hr_finance.py`, tambahkan tool `daftar_karyawan_departemen(departemen: str) -> str`. Jalankan `uv run app.py --mcp`: tool baru langsung muncul. Dengan `LLM_MODE=live`, tanyakan *"Siapa saja karyawan di departemen IT?"*. Agent memakai tool baru itu tanpa satu baris pun berubah di `app/`.
 2. **Server mati.** Ubah sementara `SERVER_HR` ke path yang salah, lalu jalankan `uv run app.py "Berapa sisa anggaran Sari?"`. Baca errornya: graph gagal saat dibangun, karena daftar tool diambil dari server. Bagaimana sebaiknya agent bersikap kalau aplikasi internal sedang down? (Kita bahas retry di Langkah 15.)
 3. **Debug:** pasang breakpoint di `panggil_tool`, lalu jalankan lewat F5. Periksa `hasil.content`.
 
@@ -2111,15 +2153,14 @@ data/kebijakan/*.md                                 "Berapa batas hotel per mala
 4. Cari   : pertanyaan di-embed dengan fungsi yang SAMA, ChromaDB mengembalikan k potongan terdekat.
 
 Coba langsung:
-  uv run python -m app.rag --potongan                     # lihat semua potongan
-  uv run python -m app.rag "Berapa batas hotel per malam?"   # cari
+  uv run app.py --potongan                          # lihat semua potongan
+  uv run app.py --rag "Berapa batas hotel per malam?"   # cari
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-import sys
 from functools import lru_cache
 
 from app.config import get_settings
@@ -2218,15 +2259,43 @@ def cari_kebijakan(pertanyaan: str, k: int = 2) -> list[dict]:
     return hasil
 
 
-if __name__ == "__main__":
-    if sys.argv[1:] == ["--potongan"]:
-        for p in potong_dokumen():
-            print(f"{p['id']:<42} {p['teks'][:70]}…")
+# ---------------------------------------------------------------- dipanggil oleh app.py --potongan / --rag
+def cetak_potongan() -> None:
+    for p in potong_dokumen():
+        print(f"{p['id']:<42} {p['teks'][:70]}…")
+
+
+def cetak_cari(q: str) -> None:
+    print(f"pertanyaan: {q}  (collection berisi {koleksi().count()} potongan)\n")
+    for h in cari_kebijakan(q, k=3) or [{"skor": 0, "sumber": "-", "bagian": "tidak ada yang relevan", "teks": ""}]:
+        print(f"[skor {h['skor']:.3f}] {h['sumber']} / {h['bagian']}\n    {h['teks']}\n")
+```
+
+➕ **`app.py`**: tambahkan. `opsi_alat` dan `jalankan_alat` **diganti**: ada `--potongan` dan `--rag`.
+
+<!-- kode: app.py | tambah -->
+```python
+from app.rag import cetak_cari, cetak_potongan
+
+
+def opsi_alat(parser) -> None:
+    """Opsi ALAT BANTU: memeriksa satu bagian sistem tanpa menjalankan graph."""
+    parser.add_argument("--mcp", action="store_true", help="daftar tool yang ditawarkan MCP server")
+    parser.add_argument("--potongan", action="store_true", help="semua potongan dokumen kebijakan (RAG)")
+    parser.add_argument("--rag", metavar="PERTANYAAN", help="cari langsung di ChromaDB, tanpa graph")
+
+
+def jalankan_alat(args) -> bool:
+    """Jalankan alat bantu yang dipilih. True = sudah ditangani, graph tidak perlu dijalankan."""
+    if args.mcp:
+        cetak_tool()
+    elif args.potongan:
+        cetak_potongan()
+    elif args.rag:
+        cetak_cari(args.rag)
     else:
-        q = " ".join(sys.argv[1:]) or "Berapa batas biaya hotel per malam?"
-        print(f"pertanyaan: {q}  (collection berisi {koleksi().count()} potongan)\n")
-        for h in cari_kebijakan(q, k=3) or [{"skor": 0, "sumber": "-", "bagian": "tidak ada yang relevan", "teks": ""}]:
-            print(f"[skor {h['skor']:.3f}] {h['sumber']} / {h['bagian']}\n    {h['teks']}\n")
+        return False
+    return True
 ```
 
 📄 **`app/state.py`** (tulis ulang lengkap). Tambah `sumber` dan skema `JawabanKebijakan`.
@@ -2312,9 +2381,9 @@ Graph tidak berubah, hanya isi satu node. Inilah keuntungan node yang tipis.
 
 Lihat dulu hasil chunking:
 
-<!-- output: 8 | uv run python -m app.rag --potongan -->
+<!-- output: 8 | uv run app.py --potongan -->
 ```text
-$ uv run python -m app.rag --potongan
+$ uv run app.py --potongan
 KEB-01::Batas per item                     Setiap item klaim dibandingkan dengan batas per item untuk kategorinya…
 KEB-01::Item yang melebihi batas           Item yang melebihi batas tetap dibayar, tetapi hanya sampai batasnya. …
 KEB-01::Kategori yang tidak dapat diklaim  Kategori hiburan, misalnya langganan streaming, tiket konser, atau kar…
@@ -2330,9 +2399,9 @@ KEB-03::Transfer pembayaran                Pembayaran ditransfer satu kali per k
 
 Cari langsung di ChromaDB, tanpa graph:
 
-<!-- output: 8 | uv run python -m app.rag "Hotel tanpa struk apakah ditolak?" -->
+<!-- output: 8 | uv run app.py --rag "Hotel tanpa struk apakah ditolak?" -->
 ```text
-$ uv run python -m app.rag "Hotel tanpa struk apakah ditolak?"
+$ uv run app.py --rag "Hotel tanpa struk apakah ditolak?"
 pertanyaan: Hotel tanpa struk apakah ditolak?  (collection berisi 10 potongan)
 
 [skor 0.629] KEB-02 / Kategori yang wajib struk
@@ -2440,7 +2509,7 @@ for kol in c.list_collections():
 
 ### 8.6 Eksperimen
 
-1. **Pertanyaan di luar topik:** `uv run python -m app.rag "Bagaimana aturan resep kue?"`. Tidak ada potongan yang lolos `SKOR_MINIMUM`. Turunkan ambangnya ke `0.1`, lalu lihat potongan tidak relevan yang ikut masuk. Itulah yang akan "dikarang-karang" LLM kalau ambangnya terlalu rendah. Kembalikan ke `0.2`.
+1. **Pertanyaan di luar topik:** `uv run app.py --rag "Bagaimana aturan resep kue?"`. Tidak ada potongan yang lolos `SKOR_MINIMUM`. Turunkan ambangnya ke `0.1`, lalu lihat potongan tidak relevan yang ikut masuk. Itulah yang akan "dikarang-karang" LLM kalau ambangnya terlalu rendah. Kembalikan ke `0.2`.
 2. **Index otomatis dibangun ulang:** tambahkan bagian baru di `data/kebijakan/KEB-02_bukti_struk.md`, misalnya `## Struk hilang` beserta isinya. Jalankan `--potongan` dan cari "struk hilang". Kode mendeteksi sidik yang berubah dan membangun index ulang. Hapus lagi bagian itu setelah selesai, supaya test tetap cocok.
 3. **Kelemahan embedding hash:** cari "Berapa plafon penginapan?". Kata "plafon" dan "penginapan" tidak ada di dokumen, jadi hasilnya buruk, padahal maknanya sama dengan "batas hotel". Embedding semantik (bagian 8.7) menyelesaikan masalah ini.
 4. **Debug:** pasang breakpoint di `cari_kebijakan` setelah `kol.query(...)`, lalu periksa isi `res`. Bentuknya list di dalam list, karena ChromaDB menerima banyak query sekaligus.
@@ -2479,7 +2548,7 @@ def id_embedding() -> str:
 Coba:
 
 ```bash
-EMBEDDING=onnx uv run python -m app.rag "Berapa plafon penginapan?"     # bandingkan dengan eksperimen 8.6.3
+EMBEDDING=onnx uv run app.py --rag "Berapa plafon penginapan?"     # bandingkan dengan eksperimen 8.6.3
 ```
 
 Catatan:
@@ -3077,11 +3146,11 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-003", "karyawan_id": "EMP-03", "judul": "Perlengkapan kerja remote", "tanggal": "…
     log = ["muat_klaim: 3 item"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-003-2", "kategori": "peralatan", "diajukan": 1350000, "disetujui": 0, "status": "…
-    log = ["periksa_item KLM-003-2: ditolak"]
-superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-003-1", "kategori": "peralatan", "diajukan": 2100000, "disetujui": 2100000, "stat…
     log = ["periksa_item KLM-003-1: ok"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-003-2", "kategori": "peralatan", "diajukan": 1350000, "disetujui": 0, "status": "…
+    log = ["periksa_item KLM-003-2: ditolak"]
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-003-3", "kategori": "hiburan", "diajukan": 250000, "disetujui": 0, "status": "dit…
     log = ["periksa_item KLM-003-3: ditolak"]
@@ -3534,7 +3603,10 @@ def main() -> None:
     parser.add_argument("--riwayat", action="store_true", help="semua checkpoint thread")
     parser.add_argument("--dari", metavar="CHECKPOINT_ID", help="jalankan ulang dari checkpoint lama")
     parser.add_argument("--ubah", metavar="JSON", help="bersama --dari: ubah state dulu (fork)")
+    opsi_alat(parser)
     args = parser.parse_args()
+    if jalankan_alat(args):
+        return
 
     if args.gambar:
         print(build_graph().get_graph().draw_ascii())
@@ -3566,7 +3638,7 @@ def main() -> None:
     tampilkan_akhir(graph, config)                      # config tanpa checkpoint_id = checkpoint terbaru
 ```
 
-Bandingkan dengan `main` versi Langkah 1. Perubahannya hanya tiga hal: graph di-compile dengan `buka_sqlite()`, setiap run punya `config` berisi `thread_id`, dan setelah run kita bisa **bertanya ke checkpointer** (`get_state`, `get_state_history`). `--gambar` tetap memakai `build_graph()` tanpa checkpointer, karena menggambar tidak butuh state.
+Bandingkan dengan `main` versi Langkah 1. Perubahannya hanya tiga hal (dua baris alat bantu dari Langkah 7 tetap ada): graph di-compile dengan `buka_sqlite()`, setiap run punya `config` berisi `thread_id`, dan setelah run kita bisa **bertanya ke checkpointer** (`get_state`, `get_state_history`). `--gambar` tetap memakai `build_graph()` tanpa checkpointer, karena menggambar tidak butuh state.
 
 ### 13.3 Coba dari Python
 
@@ -3614,12 +3686,12 @@ superstep 2: muat_klaim
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
     log = ["periksa_item KLM-002-1: ok"]
-superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
-    log = ["periksa_item KLM-002-2: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
     log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
+    log = ["periksa_item KLM-002-2: ok"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_penuh", "alasan": "semua item sesuai aturan", "total_diajukan": 180000, "total_di…
     log = ["putuskan: setujui_penuh, perlu_persetujuan=False"]
@@ -3656,16 +3728,16 @@ thread: demo-13
 
 $ uv run app.py --thread demo-13 --riwayat
 step  sumber  next                           checkpoint_id
-   8  loop    -                              1f1e4e48-a57f-6b88-8008-411e7880d512
-   7  loop    nilai_memo                     1f1e4e48-a57e-6c06-8007-6652191e4254
-   6  loop    tulis_memo                     1f1e4e48-a57d-69b4-8006-bc485f685e28
-   5  loop    nilai_memo                     1f1e4e48-a57c-67d0-8005-9e12b93979c6
-   4  loop    tulis_memo                     1f1e4e48-a57b-6556-8004-dfeaf15b56d4
-   3  loop    putuskan                       1f1e4e48-a57a-6480-8003-2850f37be78b
-   2  loop    periksa_item, periksa_item, ce 1f1e4e48-a575-6e76-8002-cbfccf8632f0
-   1  loop    muat_klaim                     1f1e4e48-a574-6350-8001-498a51d9e73f
-   0  loop    router                         1f1e4e48-a571-6fd8-8000-7cf39b95fad5
-  -1  input   __start__                      1f1e4e48-a56f-6c74-bfff-edea43aa39fd
+   8  loop    -                              1f1e4e5d-cf4e-6c24-8008-b7b544ad56b2
+   7  loop    nilai_memo                     1f1e4e5d-cf4d-6f4a-8007-36f89f2b0d45
+   6  loop    tulis_memo                     1f1e4e5d-cf4d-602c-8006-6182a0ad51b3
+   5  loop    nilai_memo                     1f1e4e5d-cf4b-6ed4-8005-3676d62a1b01
+   4  loop    tulis_memo                     1f1e4e5d-cf4a-6d86-8004-82d8e42b761e
+   3  loop    putuskan                       1f1e4e5d-cf49-6fee-8003-1eef382d5d30
+   2  loop    periksa_item, periksa_item, ce 1f1e4e5d-cf46-64ac-8002-0225871e7a85
+   1  loop    muat_klaim                     1f1e4e5d-cf45-61b0-8001-a9f00b6c1f20
+   0  loop    router                         1f1e4e5d-cf43-6234-8000-b22f1e13f837
+  -1  input   __start__                      1f1e4e5d-cf41-661e-bfff-0a677611eb33
 ```
 <!-- /output -->
 
@@ -4051,7 +4123,10 @@ def main() -> None:
     parser.add_argument("--lanjut", nargs="?", const="", metavar="AKSI",
                         help="lanjutkan thread: setujui / revisi / tolak (tanpa AKSI: lanjut saja)")
     parser.add_argument("--catatan", default="", help="catatan untuk --lanjut")
+    opsi_alat(parser)
     args = parser.parse_args()
+    if jalankan_alat(args):
+        return
 
     if args.gambar:
         print(build_graph().get_graph().draw_ascii())
@@ -4454,11 +4529,11 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
     log = ["muat_klaim: 2 item"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
-    log = ["periksa_item KLM-002-2: ok"]
-superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
     log = ["periksa_item KLM-002-1: ok"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
+    log = ["periksa_item KLM-002-2: ok"]
 superstep 3: cek_karyawan ✖ GAGAL: API HR timeout (panggilan ke-4)
 
 ✖ graph berhenti: HRTimeoutError: API HR timeout (panggilan ke-4)
@@ -4530,14 +4605,14 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
     log = ["muat_klaim: 2 item"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
-    log = ["periksa_item KLM-002-1: ok"]
-superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
     log = ["periksa_item KLM-002-2: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
     log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
+    log = ["periksa_item KLM-002-1: ok"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_penuh", "alasan": "semua item sesuai aturan", "total_diajukan": 180000, "total_di…
     log = ["putuskan: setujui_penuh, perlu_persetujuan=False"]
@@ -4559,6 +4634,9 @@ superstep 8: nilai_memo
 💥 SIMULASI CRASH: transfer TRF-0001 sudah terjadi, tetapi node 'bayar' belum selesai.
 
 $ uv run app.py --thread crash-15 --lanjut
+superstep 2: muat_klaim
+    klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
+    log = ["muat_klaim: 2 item"]
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
     log = ["periksa_item KLM-002-2: ok"]
@@ -4917,12 +4995,11 @@ def bayar(state: KlaimState) -> dict:
 ```python
 """Contoh konsumen streaming: tampilkan progres graph secara real-time.
 
-  uv run python -m app.pantau "Proses klaim KLM-002"
+  uv run app.py "Proses klaim KLM-002" --pantau
 """
 
 from __future__ import annotations
 
-import sys
 import uuid
 
 from langgraph.checkpoint.memory import InMemorySaver
@@ -4946,10 +5023,36 @@ def pantau(permintaan: str) -> list[str]:
                     baris.append(f"✔ {node}: " + "; ".join((pembaruan or {}).get("log", [])))
         print(baris[-1], flush=True)
     return baris
+```
+
+➕ **`app.py`**: tambahkan. `opsi_alat` dan `jalankan_alat` **diganti**: ada `--pantau`.
+
+<!-- kode: app.py | tambah -->
+```python
+from app.pantau import pantau
 
 
-if __name__ == "__main__":
-    pantau(" ".join(sys.argv[1:]) or "Proses klaim KLM-002")
+def opsi_alat(parser) -> None:
+    """Opsi ALAT BANTU: memeriksa satu bagian sistem tanpa menjalankan graph."""
+    parser.add_argument("--mcp", action="store_true", help="daftar tool yang ditawarkan MCP server")
+    parser.add_argument("--potongan", action="store_true", help="semua potongan dokumen kebijakan (RAG)")
+    parser.add_argument("--rag", metavar="PERTANYAAN", help="cari langsung di ChromaDB, tanpa graph")
+    parser.add_argument("--pantau", action="store_true", help="bersama permintaan: progres dengan stream_mode updates")
+
+
+def jalankan_alat(args) -> bool:
+    """Jalankan alat bantu yang dipilih. True = sudah ditangani, graph tidak perlu dijalankan."""
+    if args.mcp:
+        cetak_tool()
+    elif args.potongan:
+        cetak_potongan()
+    elif args.rag:
+        cetak_cari(args.rag)
+    elif args.pantau:
+        pantau(args.permintaan or "Proses klaim KLM-002")
+    else:
+        return False
+    return True
 ```
 
 ➕ **`app.py`**: tambahkan. `jalankan` **diganti**: sekarang memakai dua mode sekaligus, supaya pesan progres dari `bayar` ikut tampil.
@@ -5012,14 +5115,14 @@ for potongan in graph.stream({"permintaan": "Proses klaim KLM-002"}, stream_mode
 
 ### 17.3 Jalankan dan amati
 
-<!-- output: 17 | uv run python -m app.pantau "Proses klaim KLM-002" -->
+<!-- output: 17 | uv run app.py "Proses klaim KLM-002" --pantau -->
 ```text
-$ uv run python -m app.pantau "Proses klaim KLM-002"
+$ uv run app.py "Proses klaim KLM-002" --pantau
 ✔ router: router: klaim (menyebut nomor klaim)
 ✔ muat_klaim: muat_klaim: 2 item
-✔ periksa_item: periksa_item KLM-002-2: ok
 ✔ periksa_item: periksa_item KLM-002-1: ok
 ✔ cek_karyawan: cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000
+✔ periksa_item: periksa_item KLM-002-2: ok
 ✔ putuskan: putuskan: setujui_penuh, perlu_persetujuan=False
 ✔ tulis_memo: tulis_memo: draf ke-1
 ✔ nilai_memo: nilai_memo: skor 5, lolos=False
@@ -5044,15 +5147,15 @@ superstep 1: router
 superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
     log = ["muat_klaim: 2 item"]
+superstep 3: cek_karyawan
+    profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
+    log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
     log = ["periksa_item KLM-002-1: ok"]
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
     log = ["periksa_item KLM-002-2: ok"]
-superstep 3: cek_karyawan
-    profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
-    log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_penuh", "alasan": "semua item sesuai aturan", "total_diajukan": 180000, "total_di…
     log = ["putuskan: setujui_penuh, perlu_persetujuan=False"]
@@ -5092,8 +5195,8 @@ Bandingkan bentuk mentah setiap mode dengan `coba_stream.py`:
 $ uv run coba_stream.py updates
 {'router': {'rute': 'klaim', 'claim_id': 'KLM-002', 'log': ['router: klaim (menyebut nomor klaim)']}}
 {'muat_klaim': {'klaim': {'claim_id': 'KLM-002', 'karyawan_id': 'EMP-02', 'judul': 'Rapat vendor di Sudirman', 'tanggal': '2026-11-05', 'item': [{'item_id': 'KLM-002-1', 'kategori': 'transport', 'jumlah': 85000, 'ada_struk': True, 'keterangan': 'Taksi pulang pergi'}, {'item_id': 'KLM-002-2', 'kategori': 'makan', 'jumlah': 95000, 'ada_struk': True, 'keterangan': 'Makan siang'}]}, 'log': ['muat_klaim: 2 item']}}
-{'cek_karyawan': {'profil': {'karyawan_id': 'EMP-02', 'nama': 'Sari Wulandari', 'departemen': 'Marketing', 'atasan': 'Tono (Marketing Lead)', 'sisa_anggaran': 3000000, 'nik': '3174024506920002', 'no_rekening': '0123456782', 'email': 'sari.wulandari@contoh.co.id'}, 'log': ['cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000']}}
 {'periksa_item': {'hasil_item': [{'item_id': 'KLM-002-2', 'kategori': 'makan', 'diajukan': 95000, 'disetujui': 95000, 'status': 'ok', 'alasan': 'sesuai aturan'}], 'log': ['periksa_item KLM-002-2: ok']}}
+{'cek_karyawan': {'profil': {'karyawan_id': 'EMP-02', 'nama': 'Sari Wulandari', 'departemen': 'Marketing', 'atasan': 'Tono (Marketing Lead)', 'sisa_anggaran': 3000000, 'nik': '3174024506920002', 'no_rekening': '0123456782', 'email': 'sari.wulandari@contoh.co.id'}, 'log': ['cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000']}}
 {'periksa_item': {'hasil_item': [{'item_id': 'KLM-002-1', 'kategori': 'transport', 'diajukan': 85000, 'disetujui': 85000, 'status': 'ok', 'alasan': 'sesuai aturan'}], 'log': ['periksa_item KLM-002-1: ok']}}
 … (7 baris berikutnya dipotong)
 ```
@@ -5193,14 +5296,13 @@ Tidak ada kode yang berubah, karena LangChain membaca variabel itu sendiri. Inga
 ```python
 """Tracer lokal: catat graph, node, LLM, dan tool ke file JSONL. Jalan tanpa internet.
 
-    uv run python -m app.jejak <thread_id>           # tampilkan jejak satu thread sebagai pohon
-    uv run python -m app.jejak <thread_id> --semua   # termasuk langkah internal (fungsi rute, dll.)
+    uv run app.py --jejak <thread_id>           # tampilkan jejak satu thread sebagai pohon
+    uv run app.py --jejak <thread_id> --semua   # termasuk langkah internal (fungsi rute, dll.)
 """
 
 from __future__ import annotations
 
 import json
-import sys
 import threading
 import time
 from pathlib import Path
@@ -5309,10 +5411,40 @@ def tampilkan(thread_id: str, semua: bool = False) -> None:
 
     for akar in sorted(anak.get(None, []), key=lambda x: x["waktu"]):
         cetak(akar, 0)
+```
+
+➕ **`app.py`**: tambahkan. `opsi_alat` dan `jalankan_alat` **diganti**: ada `--jejak` dan `--semua`.
+
+<!-- kode: app.py | tambah -->
+```python
+from app.jejak import tampilkan as tampilkan_jejak
 
 
-if __name__ == "__main__":
-    tampilkan(sys.argv[1], semua="--semua" in sys.argv)
+def opsi_alat(parser) -> None:
+    """Opsi ALAT BANTU: memeriksa satu bagian sistem tanpa menjalankan graph."""
+    parser.add_argument("--mcp", action="store_true", help="daftar tool yang ditawarkan MCP server")
+    parser.add_argument("--potongan", action="store_true", help="semua potongan dokumen kebijakan (RAG)")
+    parser.add_argument("--rag", metavar="PERTANYAAN", help="cari langsung di ChromaDB, tanpa graph")
+    parser.add_argument("--pantau", action="store_true", help="bersama permintaan: progres dengan stream_mode updates")
+    parser.add_argument("--jejak", metavar="THREAD", help="tampilkan jejak (trace) satu thread")
+    parser.add_argument("--semua", action="store_true", help="bersama --jejak: termasuk langkah internal")
+
+
+def jalankan_alat(args) -> bool:
+    """Jalankan alat bantu yang dipilih. True = sudah ditangani, graph tidak perlu dijalankan."""
+    if args.mcp:
+        cetak_tool()
+    elif args.potongan:
+        cetak_potongan()
+    elif args.rag:
+        cetak_cari(args.rag)
+    elif args.pantau:
+        pantau(args.permintaan or "Proses klaim KLM-002")
+    elif args.jejak:
+        tampilkan_jejak(args.jejak, semua=args.semua)
+    else:
+        return False
+    return True
 ```
 
 ➕ **`app.py`**: tambahkan. `jalankan` **diganti**: setiap run dicatat ke `runtime/jejak/<thread>.jsonl`.
@@ -5359,23 +5491,23 @@ def jalankan(graph, masukan, config=None) -> None:
         print(f"\n✖ graph berhenti: {type(e).__name__}: {e}")
         print(f"checkpoint terakhir tetap tersimpan. Setelah masalahnya beres: uv run app.py --thread {thread} --lanjut")
         raise SystemExit(1)
-    print(f"\njejak: uv run python -m app.jejak {thread}")
+    print(f"\njejak: uv run app.py --jejak {thread}")
 ```
 
 ### 18.4 Jalankan dan amati
 
-<!-- output: 18 | uv run app.py "Berapa sisa anggaran Sari, dan bolehkah klaim hotel tanpa struk?" --thread demo-18 > /dev/null && uv run python -m app.jejak demo-18 -->
+<!-- output: 18 | uv run app.py "Berapa sisa anggaran Sari, dan bolehkah klaim hotel tanpa struk?" --thread demo-18 > /dev/null && uv run app.py --jejak demo-18 -->
 ```text
 $ uv run app.py "Berapa sisa anggaran Sari, dan bolehkah klaim hotel tanpa struk?" --thread demo-18 > /dev/null
 
-$ uv run python -m app.jejak demo-18
-graph LangGraph                1315.2 ms
-  node  router                      0.7 ms  superstep 1
-  node  asisten                     0.7 ms  superstep 2
-  node  alat                     1307.6 ms  superstep 3
-    tool  profil_karyawan           576.3 ms
-    tool  cari_kebijakan           1306.1 ms
-  node  asisten                     0.7 ms  superstep 4
+$ uv run app.py --jejak demo-18
+graph LangGraph                 969.0 ms
+  node  router                      0.6 ms  superstep 1
+  node  asisten                     0.6 ms  superstep 2
+  node  alat                      962.4 ms  superstep 3
+    tool  profil_karyawan           504.9 ms
+    tool  cari_kebijakan            961.1 ms
+  node  asisten                     0.5 ms  superstep 4
 ```
 <!-- /output -->
 
@@ -5393,9 +5525,9 @@ tail -n 3 runtime/jejak/demo-18.jsonl
 
 ### 18.5 Eksperimen
 
-1. **(Live)** `LLM_MODE=live uv run app.py "Berapa sisa anggaran Sari?" --thread live-18`, lalu `uv run python -m app.jejak live-18`. Bandingkan jumlah token di dua span `llm`: putaran kedua lebih besar, karena hasil tool ikut dikirim ke LLM.
+1. **(Live)** `LLM_MODE=live uv run app.py "Berapa sisa anggaran Sari?" --thread live-18`, lalu `uv run app.py --jejak live-18`. Bandingkan jumlah token di dua span `llm`: putaran kedua lebih besar, karena hasil tool ikut dikirim ke LLM.
 2. **Cari bottleneck.** Jalankan `uv run app.py "Proses klaim KLM-001" --thread t18`. Node mana yang paling lama? Lalu `HR_GAGAL_N_KALI=2 uv run app.py "Proses klaim KLM-002" --thread t18b` dan lihat jejaknya: retry di `cek_karyawan` (Langkah 15) terlihat sebagai durasi yang memanjang.
-3. **Lihat semuanya:** `uv run python -m app.jejak demo-18 --semua` juga menampilkan langkah internal, misalnya fungsi rute `rute_setelah_router` dan `tools_condition`.
+3. **Lihat semuanya:** `uv run app.py --jejak demo-18 --semua` juga menampilkan langkah internal, misalnya fungsi rute `rute_setelah_router` dan `tools_condition`.
 
 ### 18.6 Cek
 
@@ -6008,14 +6140,14 @@ superstep 2: muat_klaim
     peringatan = ["KLM-004-1: keterangan berisi pola prompt injection"]
     log = ["muat_klaim: 2 item"]
 superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-004-1", "kategori": "hotel", "diajukan": 900000, "disetujui": 750000, "status": "…
+    log = ["periksa_item KLM-004-1: dipotong"]
+superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-004-2", "kategori": "transport", "diajukan": 280000, "disetujui": 280000, "status…
     log = ["periksa_item KLM-004-2: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-04", "nama": "Dewi Lestari", "departemen": "Finance", "atasan": "Hadi (CFO)", …
     log = ["cek_karyawan: Dewi Lestari, sisa anggaran Rp5.000.000"]
-superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-004-1", "kategori": "hotel", "diajukan": 900000, "disetujui": 750000, "status": "…
-    log = ["periksa_item KLM-004-1: dipotong"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_sebagian", "alasan": "sebagian item dipotong atau ditolak", "total_diajukan": 118…
     log = ["putuskan: setujui_sebagian, perlu_persetujuan=True"]
@@ -6035,7 +6167,7 @@ superstep 8: nilai_memo
     log = ["nilai_memo: skor 8, lolos=True"]
 superstep 9: persetujuan ⏸ memanggil interrupt
 
-jejak: uv run python -m app.jejak demo-21
+jejak: uv run app.py --jejak demo-21
 
 ⏸  berhenti di persetujuan, menunggu jawaban manusia:
 {
@@ -6114,14 +6246,13 @@ Soal LLM: data yang dikirim ke penyedia LLM ikut tunduk pada kebijakan data peru
 ```python
 """Perlindungan data confidential: minimasi, redaksi, dan audit kebocoran.
 
-    uv run python -m app.privasi <thread_id>      # periksa checkpoint + jejak satu thread
+    uv run app.py --audit <thread_id>      # periksa checkpoint + jejak satu thread
 """
 
 from __future__ import annotations
 
 import json
 import re
-import sys
 
 FIELD_RAHASIA = {"nik", "no_rekening", "email"}
 POLA_RAHASIA = {                                   # urutan penting: NIK (16 digit) sebelum rekening (10 digit)
@@ -6172,9 +6303,47 @@ def audit(thread_id: str) -> list[str]:
     return temuan
 
 
-if __name__ == "__main__":
-    hasil = audit(sys.argv[1])
+def cetak_audit(thread_id: str) -> None:
+    """Dipanggil oleh `uv run app.py --audit <thread_id>`."""
+    hasil = audit(thread_id)
     print("\n".join(f"✖ {x}" for x in hasil) if hasil else "✔ tidak ada data rahasia di checkpoint maupun jejak")
+```
+
+➕ **`app.py`**: tambahkan. `opsi_alat` dan `jalankan_alat` **diganti**: ada `--audit`.
+
+<!-- kode: app.py | tambah -->
+```python
+from app.privasi import cetak_audit
+
+
+def opsi_alat(parser) -> None:
+    """Opsi ALAT BANTU: memeriksa satu bagian sistem tanpa menjalankan graph."""
+    parser.add_argument("--mcp", action="store_true", help="daftar tool yang ditawarkan MCP server")
+    parser.add_argument("--potongan", action="store_true", help="semua potongan dokumen kebijakan (RAG)")
+    parser.add_argument("--rag", metavar="PERTANYAAN", help="cari langsung di ChromaDB, tanpa graph")
+    parser.add_argument("--pantau", action="store_true", help="bersama permintaan: progres dengan stream_mode updates")
+    parser.add_argument("--jejak", metavar="THREAD", help="tampilkan jejak (trace) satu thread")
+    parser.add_argument("--semua", action="store_true", help="bersama --jejak: termasuk langkah internal")
+    parser.add_argument("--audit", metavar="THREAD", help="cari data rahasia di checkpoint dan jejak thread")
+
+
+def jalankan_alat(args) -> bool:
+    """Jalankan alat bantu yang dipilih. True = sudah ditangani, graph tidak perlu dijalankan."""
+    if args.mcp:
+        cetak_tool()
+    elif args.potongan:
+        cetak_potongan()
+    elif args.rag:
+        cetak_cari(args.rag)
+    elif args.pantau:
+        pantau(args.permintaan or "Proses klaim KLM-002")
+    elif args.jejak:
+        tampilkan_jejak(args.jejak, semua=args.semua)
+    elif args.audit:
+        cetak_audit(args.audit)
+    else:
+        return False
+    return True
 ```
 
 ➕ **`app/nodes.py`**: tambahkan. `cek_karyawan` **diganti** (lapis 1: minimasi).
@@ -6218,11 +6387,11 @@ $ uv run python -c "from app.jejak import path_jejak; print([b[b.index('nik') - 
 
 Setelah minimasi dan redaksi, jalankan audit:
 
-<!-- output: 22 | uv run app.py "Proses klaim KLM-002" --thread aman > /dev/null && uv run python -m app.privasi aman -->
+<!-- output: 22 | uv run app.py "Proses klaim KLM-002" --thread aman > /dev/null && uv run app.py --audit aman -->
 ```text
 $ uv run app.py "Proses klaim KLM-002" --thread aman > /dev/null
 
-$ uv run python -m app.privasi aman
+$ uv run app.py --audit aman
 ✔ tidak ada data rahasia di checkpoint maupun jejak
 ```
 <!-- /output -->
@@ -6248,7 +6417,7 @@ Trace LangSmith berisi input dan output **setiap** node, jadi lapis 1 (minimasi)
 
 ### 22.5 Eksperimen
 
-1. **Bukti minimasi.** Kembalikan sementara `cek_karyawan` ke versi Langkah 10 (tanpa `tanpa_rahasia`). Jalankan klaim lalu `uv run python -m app.privasi <thread>`. Checkpoint bocor, tetapi jejak tetap aman berkat lapis 2. Inilah *defense in depth*. Kembalikan.
+1. **Bukti minimasi.** Kembalikan sementara `cek_karyawan` ke versi Langkah 10 (tanpa `tanpa_rahasia`). Jalankan klaim lalu `uv run app.py --audit <thread>`. Checkpoint bocor, tetapi jejak tetap aman berkat lapis 2. Inilah *defense in depth*. Kembalikan.
 2. **Redaksi teks bebas.** `uv run python -c "from app.privasi import samarkan; print(samarkan('transfer ke 0123456782, NIK 3174024506920002, email sari@contoh.co.id'))"`. Pola apa lagi yang relevan untuk data GGF? (Nomor HP, NPWP, nomor kontrak?)
 3. **Respons API.** Panggil `GET /klaim/<thread>` dari Langkah 19. Apakah respons API pernah memuat profil? Kenapa membatasi field di respons (`_ringkasan`) termasuk minimasi?
 
@@ -6327,7 +6496,7 @@ if __name__ == "__main__":
 ```python
 """Client MCP minimal: tool dari beberapa MCP server -> tool LangChain yang bisa dipakai ToolNode.
 
-    uv run python -m app.mcp_klien        # tampilkan tool yang DITERIMA dan yang DITOLAK
+    uv run app.py --mcp        # tampilkan tool yang DITERIMA dan yang DITOLAK
 """
 
 from __future__ import annotations
@@ -6404,7 +6573,8 @@ def tool_mcp() -> tuple[StructuredTool, ...]:
     return tuple(diterima)
 
 
-if __name__ == "__main__":
+def cetak_tool() -> None:
+    """Tool yang DITERIMA dan yang DITOLAK (dipanggil oleh `uv run app.py --mcp`)."""
     for t in tool_mcp():
         print(f"✔ {t.name:<18} [{t.metadata['server_mcp']}] {t.description.splitlines()[0]}")
     for nama, alasan in DITOLAK.items():
@@ -6498,9 +6668,9 @@ SYSTEM_ROUTER = (
 
 Lihat apa yang terjadi saat tool dimuat dari kedua server:
 
-<!-- output: 23 | uv run python -m app.mcp_klien -->
+<!-- output: 23 | uv run app.py --mcp -->
 ```text
-$ uv run python -m app.mcp_klien
+$ uv run app.py --mcp
 ✔ profil_karyawan    [hr_finance] Profil karyawan: departemen, atasan, dan sisa anggaran reimbursement tahun ini.
 ✔ detail_klaim       [hr_finance] Detail klaim reimbursement: judul, tanggal, pengaju, daftar item, dan total diajukan.
 ✔ info_vendor        [vendor_luar] Status registrasi vendor perusahaan.
@@ -6533,7 +6703,7 @@ superstep 4: asisten
     status_akhir = "dijawab"
     log = ["asisten: menjawab"]
 
-jejak: uv run python -m app.jejak t-a1b2c3
+jejak: uv run app.py --jejak t-a1b2c3
 
 state akhir (superstep 4):
     permintaan = "Apakah vendor Maju terdaftar?"
@@ -6737,7 +6907,7 @@ superstep 2: asisten
     log = ["asisten: minta tool batalkan_klaim"]
 superstep 3: izin ⏸ memanggil interrupt
 
-jejak: uv run python -m app.jejak batal-1
+jejak: uv run app.py --jejak batal-1
 
 ⏸  berhenti di izin, menunggu jawaban manusia:
 {
@@ -6771,7 +6941,7 @@ superstep 4: asisten
     status_akhir = "dijawab"
     log = ["asisten: menjawab"]
 
-jejak: uv run python -m app.jejak batal-1
+jejak: uv run app.py --jejak batal-1
 
 state akhir (superstep 4):
     permintaan = "Tolong batalkan klaim KLM-003, salah input"

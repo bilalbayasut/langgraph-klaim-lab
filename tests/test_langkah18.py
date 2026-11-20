@@ -42,3 +42,12 @@ def test_env_langsmith_terdokumentasi(kode):
 
     contoh = (Path(__file__).resolve().parents[1] / ".env.example").read_text()
     assert "LANGSMITH_TRACING=false" in contoh and "LANGSMITH_API_KEY=" in contoh
+
+
+def test_app_py_jejak():
+    from conftest import app_py
+
+    run = app_py("Proses klaim KLM-002", "--thread", "j18").stdout
+    assert "uv run app.py --jejak j18" in run
+    out = app_py("--jejak", "j18").stdout
+    assert "node  router" in out

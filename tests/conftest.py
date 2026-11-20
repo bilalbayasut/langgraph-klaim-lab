@@ -6,6 +6,8 @@ Test mengimpor `app` dari folder tempat pytest dijalankan:
     cd _kunci/langkah-05 && uv run pytest ../../tests/test_langkah05.py   -> menguji kunci jawaban langkah 5
 """
 
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -41,3 +43,11 @@ def kode() -> Path:
 
 def cfg(thread: str) -> dict:
     return {"configurable": {"thread_id": thread}}
+
+
+def app_py(*args: str) -> subprocess.CompletedProcess:
+    """`uv run app.py ARGS` dari folder kode, dengan env test (mock, runtime sementara)."""
+    r = subprocess.run([sys.executable, "app.py", *args], cwd=KODE, env=dict(os.environ),
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stdout + r.stderr
+    return r

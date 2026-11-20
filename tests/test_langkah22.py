@@ -48,3 +48,10 @@ def test_audit_thread_bersih(capsys):
                    capture_output=True, check=True)
     from app.privasi import audit
     assert audit("aud") == []
+
+
+def test_app_py_audit():
+    from conftest import app_py
+
+    app_py("Proses klaim KLM-002", "--thread", "aud22")
+    assert "tidak ada data rahasia" in app_py("--audit", "aud22").stdout

@@ -83,3 +83,10 @@ def test_asisten_menggabungkan_mcp_dan_rag():
     dipanggil = sorted(tc["name"] for m in s["messages"] for tc in getattr(m, "tool_calls", []))
     assert dipanggil == ["cari_kebijakan", "profil_karyawan"]
     assert "Rp3.000.000" in s["jawaban"] and "KEB-02" in s["jawaban"]
+
+
+def test_app_py_potongan_dan_rag():
+    from conftest import app_py
+
+    assert "KEB-01::Batas per item" in app_py("--potongan").stdout
+    assert "KEB-02 / Kategori yang wajib struk" in app_py("--rag", "Hotel tanpa struk apakah ditolak?").stdout
