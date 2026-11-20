@@ -1,40 +1,39 @@
-"""Langkah 5: fan-out, beberapa node dalam satu superstep, join."""
+"""Langkah 5: lapisan LLM (mock/live), structured output, validasi output LLM."""
 
-from helpers import superstep_dari, task_per_superstep
+import pytest
 
-from app.graph import build_graph
-from app.nodes import cek_karyawan
-
-
-def test_cek_karyawan():
-    out = cek_karyawan({"klaim": {"karyawan_id": "EMP-05"}})
-    assert out["profil"]["sisa_anggaran"] == 400000 and out["profil"]["nama"] == "Eko Saputra"
+from app import llm
+from app.nodes import router, rute_aturan
+from app.state import RuteDecision
 
 
-def test_cek_karyawan_paralel_dengan_pemeriksaan_item():
-    langkah = task_per_superstep(build_graph(), {"permintaan": "Proses klaim KLM-001"})
-    s = superstep_dari(langkah, "cek_karyawan")
-    assert any(n.startswith("periksa") for n in langkah[s]), f"harus satu superstep: {langkah}"
-    assert sum(n == "putuskan" for nama in langkah.values() for n in nama) == 1, "join: putuskan jalan sekali"
-    assert superstep_dari(langkah, "putuskan") == s + 1
+def test_mode_mock_memakai_fallback():
+    assert llm.is_live() is False
+    hasil = llm.structured(RuteDecision, "sys", "user", fallback=lambda: RuteDecision(rute="kebijakan", alasan="x"))
+    assert hasil.rute == "kebijakan"
+    assert llm.teks("sys", "user", fallback=lambda: "halo") == "halo"
 
 
-def test_tolak_karena_anggaran():
-    s = build_graph().invoke({"permintaan": "Proses klaim KLM-005"})
-    k = s["keputusan"]
-    assert (k["aksi"], k["total_disetujui"], k["perlu_persetujuan"]) == ("tolak", 0, False)
-    assert "anggaran" in k["alasan"] and s["profil"]["karyawan_id"] == "EMP-05"
+def test_mode_live_tanpa_key_gagal_jelas(monkeypatch):
+    monkeypatch.setenv("LLM_MODE", "live")
+    monkeypatch.setenv("LLM_API_KEY", "")
+    with pytest.raises(RuntimeError, match="LLM_API_KEY"):
+        llm.teks("sys", "user", fallback=lambda: "tidak dipakai")
 
 
-def test_keputusan_semua_klaim():
-    harapan = {
-        "KLM-001": ("setujui_sebagian", 1020000, True),
-        "KLM-002": ("setujui_penuh", 180000, False),
-        "KLM-003": ("setujui_sebagian", 2100000, True),
-        "KLM-004": ("setujui_sebagian", 1030000, True),
-        "KLM-005": ("tolak", 0, False),
-    }
-    g = build_graph()
-    for cid, (aksi, total, perlu) in harapan.items():
-        k = g.invoke({"permintaan": f"Proses {cid}"})["keputusan"]
-        assert (k["aksi"], k["total_disetujui"], k["perlu_persetujuan"]) == (aksi, total, perlu), cid
+def test_rute_aturan_mengembalikan_pydantic():
+    d = rute_aturan("Tolong cek KLM-003")
+    assert isinstance(d, RuteDecision) and (d.rute, d.claim_id) == ("klaim", "KLM-003")
+
+
+def test_router_memvalidasi_karangan_llm(monkeypatch):
+    """LLM 'mengarang' nomor klaim yang tidak ada -> kode mengarahkannya ke klarifikasi."""
+    palsu = RuteDecision(rute="klaim", claim_id="klm-777", alasan="LLM yakin sekali")
+    monkeypatch.setattr(llm, "structured", lambda *a, **k: palsu)
+    out = router({"permintaan": "cek klaim saya dong"})
+    assert out["rute"] == "klarifikasi" and out["claim_id"] == "KLM-777"
+
+
+def test_router_klaim_tanpa_nomor_dari_llm(monkeypatch):
+    monkeypatch.setattr(llm, "structured", lambda *a, **k: RuteDecision(rute="klaim", alasan="?"))
+    assert router({"permintaan": "proses klaim saya"})["rute"] == "klarifikasi"

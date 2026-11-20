@@ -8,7 +8,7 @@ Kamu mulai dari graph 1 node (1 superstep), lalu menambah satu konsep per langka
 
 Domainnya jauh lebih sederhana daripada `ggf-qc-agent`, tapi keluasan materi LangGraph-nya sama.
 
-👉 **Mulai dari [`LAB.md`](LAB.md)** (Langkah 0–17, lengkap dengan kode, contoh output, eksperimen, dan test).
+👉 **Mulai dari [`LAB.md`](LAB.md)** (Langkah 0–25, dibagi per Hari 1/2/3 pelatihan, lengkap dengan kode, contoh output, eksperimen, dan test).
 
 ## Quick start
 
@@ -27,9 +27,9 @@ Tidak ada perintah bantu khusus. Semuanya file Python biasa dan `pytest`:
 |---|---|
 | `uv run app.py "Proses klaim KLM-002"` | Jalankan graph dan tampilkan **setiap superstep**: node yang jalan dan apa yang ditulis ke state. `app.py` kamu tulis sendiri di Langkah 1 |
 | `uv run app.py --gambar` | Gambar graph (ASCII) |
-| `uv run app.py "..." --thread t1` | Pakai thread tertentu (Langkah 11) |
-| `uv run app.py --thread t1 --riwayat` / `--dari <id>` / `--status` | Daftar checkpoint / time travel / state terakhir (Langkah 11) |
-| `uv run app.py --thread t1 --lanjut setujui` | Jawab interrupt (human-in-the-loop, Langkah 12) |
+| `uv run app.py "..." --thread t1` | Pakai thread tertentu (Langkah 13) |
+| `uv run app.py --thread t1 --riwayat` / `--dari <id>` / `--status` | Daftar checkpoint / time travel / state terakhir (Langkah 13) |
+| `uv run app.py --thread t1 --lanjut setujui` | Jawab interrupt (human-in-the-loop, Langkah 14) |
 | `uv run pytest tests/test_langkah05.py` | Test langkah 5 (`uv run pytest` = semua test) |
 | `uv run langgraph dev` | LangGraph Studio di browser |
 | F5 di VS Code | Debugger dengan breakpoint di node (`.vscode/launch.json`) |
@@ -42,7 +42,7 @@ langgraph-klaim-lab/
 ├── LAB.md               # panduan lab langkah demi langkah  ← mulai di sini
 ├── app/                 # KAMU yang menulis isinya
 ├── app.py               # KAMU yang menulis: menjalankan graph dari terminal
-├── tests/               # test_langkah01.py ... test_langkah17.py
+├── tests/               # test_langkahNN.py, satu file per langkah
 ├── scripts/             # bangun_kunci.py: alat pengelola lab (membangun _kunci/ dari LAB.md)
 ├── data/
 │   ├── klaim.json       # 5 klaim latihan (KLM-001 ... KLM-005)

@@ -1,62 +1,44 @@
-"""Langkah 13: RetryPolicy, pending writes, crash di tengah efek samping lalu resume."""
+"""Langkah 13: checkpointer, thread, riwayat, replay, fork."""
 
-import json
-import os
-import subprocess
-import sys
-
-import pytest
-from conftest import KODE, cfg
+from conftest import cfg
 from langgraph.checkpoint.memory import InMemorySaver
 
-from app import tools
-from app.graph import HR_RETRY, build_graph
+from app.graph import build_graph, buka_sqlite
 
 
-def test_retry_policy_terkonfigurasi():
-    assert HR_RETRY.retry_on is tools.HRTimeoutError
-    assert HR_RETRY.max_attempts >= 3
-
-
-def test_api_hr_gagal_dua_kali_tetap_berhasil(monkeypatch):
-    monkeypatch.setenv("HR_GAGAL_N_KALI", "2")
-    tools.reset_hr()
-    s = build_graph(InMemorySaver()).invoke({"permintaan": "Proses KLM-002"}, cfg("r1"))
-    assert s["status_akhir"] == "dibayar"
-
-
-def test_api_hr_terus_gagal_lalu_dilanjutkan(monkeypatch):
-    monkeypatch.setenv("HR_GAGAL_N_KALI", "99")
-    tools.reset_hr()
+def test_get_state_dan_riwayat():
     g = build_graph(InMemorySaver())
-    with pytest.raises(tools.HRTimeoutError):
-        g.invoke({"permintaan": "Proses KLM-002"}, cfg("r2"))
-    assert "cek_karyawan" in g.get_state(cfg("r2")).next
-    monkeypatch.setenv("HR_GAGAL_N_KALI", "0")           # "API pulih"
-    assert g.invoke(None, cfg("r2"))["status_akhir"] == "dibayar"
+    g.invoke({"permintaan": "Proses klaim KLM-002"}, cfg("a"))
+    snap = g.get_state(cfg("a"))
+    assert snap.next == () and snap.values["claim_id"] == "KLM-002"
+    riwayat = list(g.get_state_history(cfg("a")))
+    assert len(riwayat) >= 9 and riwayat[0].next == () and riwayat[-1].metadata["source"] == "input"
+    assert [s.metadata["step"] for s in riwayat] == sorted((s.metadata["step"] for s in riwayat), reverse=True)
 
 
-def _app(*args, **env_tambahan):
-    """Jalankan `uv run app.py ...` sebagai proses terpisah (seperti dari terminal)."""
-    env = {**os.environ, **env_tambahan}
-    return subprocess.run([sys.executable, "app.py", *args], cwd=KODE, env=env,
-                          capture_output=True, text=True, timeout=120)
+def test_thread_terpisah():
+    g = build_graph(InMemorySaver())
+    g.invoke({"permintaan": "Proses klaim KLM-002"}, cfg("satu"))
+    g.invoke({"permintaan": "Proses klaim KLM-003"}, cfg("dua"))
+    assert g.get_state(cfg("satu")).values["claim_id"] == "KLM-002"
+    assert g.get_state(cfg("dua")).values["claim_id"] == "KLM-003"
+    assert g.get_state(cfg("tiga")).values == {}
 
 
-def test_crash_setelah_bayar_lalu_resume_tidak_bayar_ganda(tmp_path):
-    r = _app("Proses KLM-002", "--thread", "crash", CRASH_SETELAH_BAYAR="1")
-    assert r.returncode == 1, f"proses harus mati di tengah node bayar\n{r.stdout}\n{r.stderr}"
-    ledger = json.loads((tmp_path / "pembayaran.json").read_text())
-    assert len(ledger) == 1, "transfer sudah terjadi sebelum crash"
-
-    r = _app("--thread", "crash", "--lanjut")
-    assert r.returncode == 0, r.stdout + r.stderr
-    assert "duplikat=True" in r.stdout, "node bayar diulang, tapi kunci idempotensi mencegah transfer kedua"
-    assert len(json.loads((tmp_path / "pembayaran.json").read_text())) == 1
+def test_sqlite_bertahan_lintas_instance(tmp_path):
+    db = str(tmp_path / "cp.db")
+    build_graph(buka_sqlite(db)).invoke({"permintaan": "Proses klaim KLM-002"}, cfg("x"))
+    g2 = build_graph(buka_sqlite(db))            # "proses baru": objek graph dan koneksi baru
+    v = g2.get_state(cfg("x")).values
+    assert v["keputusan"]["aksi"] == "setujui_penuh" and v["penilaian"]["lolos"] is True
 
 
-def test_interrupt_dan_resume_lintas_proses():
-    r = _app("Proses klaim KLM-003", "--thread", "hitl")
-    assert r.returncode == 0 and "berhenti di persetujuan" in r.stdout, r.stdout + r.stderr
-    r = _app("--thread", "hitl", "--lanjut", "setujui", "--catatan", "ok")
-    assert r.returncode == 0 and '"dibayar"' in r.stdout, r.stdout + r.stderr
+def test_fork_dari_checkpoint_lama():
+    g = build_graph(InMemorySaver())
+    g.invoke({"permintaan": "Proses klaim KLM-002"}, cfg("f"))
+    n_awal = len(list(g.get_state_history(cfg("f"))))
+    lama = next(s for s in g.get_state_history(cfg("f")) if s.next == ("muat_klaim",))
+    cfg_baru = g.update_state(lama.config, {"claim_id": "KLM-003"})
+    hasil = g.invoke(None, cfg_baru)
+    assert hasil["keputusan"]["total_disetujui"] == 2100000
+    assert len(list(g.get_state_history(cfg("f")))) > n_awal, "fork menambah checkpoint, riwayat lama tetap ada"

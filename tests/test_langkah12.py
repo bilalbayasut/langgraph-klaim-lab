@@ -1,94 +1,59 @@
-"""Langkah 12: interrupt + Command(resume), efek samping setelah persetujuan."""
-
-import pytest
-from conftest import cfg
-from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.types import Command
+"""Langkah 12: memo oleh LLM, loop evaluator-optimizer dengan batas iterasi."""
 
 from app import tools
 from app.graph import build_graph
+from app.nodes import cek_memo_aturan, nilai_memo, rute_setelah_nilai, tulis_memo
 
 
-def _g():
-    return build_graph(InMemorySaver())
+def _state_dasar(cid="KLM-001"):
+    k = tools.ambil_klaim(cid)
+    rincian = [tools.periksa_item(it, tools.ambil_kebijakan()) for it in k["item"]]
+    keputusan = {"aksi": "setujui_sebagian", "alasan": "sebagian item dipotong", "total_diajukan": 1050000,
+                 "total_disetujui": 1020000, "perlu_persetujuan": True, "rincian": rincian}
+    return {"claim_id": cid, "klaim": k, "profil": tools.ambil_profil_karyawan(k["karyawan_id"]), "keputusan": keputusan}
 
 
-def test_bayar_idempoten():
-    a = tools.bayar("KLM-X", 1000)
-    b = tools.bayar("KLM-X", 1000)
-    assert (a["duplikat"], b["duplikat"]) == (False, True) and a["ref"] == b["ref"]
-    assert len(tools.baca_ledger()) == 1
+def test_cek_memo_aturan():
+    k = _state_dasar()["keputusan"]
+    baik = "Klaim KLM-001 disetujui sebagian. Total disetujui: Rp1.020.000."
+    assert cek_memo_aturan(baik, "KLM-001", k) == []
+    assert len(cek_memo_aturan("Klaim disetujui.", "KLM-001", k)) == 3
 
 
-def test_auto_approve_tanpa_manusia():
-    g = _g()
-    s = g.invoke({"permintaan": "Proses klaim KLM-002"}, cfg("a"))
-    assert s["status_akhir"] == "dibayar" and s["pembayaran"]["jumlah"] == 180000
-    assert g.get_state(cfg("a")).next == ()
+def test_draf_pertama_mock_ditolak_draf_kedua_lolos():
+    s = _state_dasar()
+    d1 = tulis_memo(s)
+    assert d1["jumlah_draf"] == 1 and "Rp1.020.000" not in d1["draf_memo"]
+    p = nilai_memo({**s, **d1})["penilaian"]
+    assert p["lolos"] is False and any("total" in m for m in p["masalah"])
+    d2 = tulis_memo({**s, **d1, "penilaian": p})
+    assert d2["jumlah_draf"] == 2 and "Rp1.020.000" in d2["draf_memo"]
+    assert nilai_memo({**s, **d2})["penilaian"]["lolos"] is True
 
 
-def test_interrupt_lalu_setujui():
-    g = _g()
-    s = g.invoke({"permintaan": "Proses klaim KLM-001"}, cfg("b"))
-    assert "__interrupt__" in s
-    payload = s["__interrupt__"][0].value
-    assert payload["claim_id"] == "KLM-001" and payload["total_disetujui"] == "Rp1.020.000"
-    assert g.get_state(cfg("b")).next == ("persetujuan",)
-    assert tools.baca_ledger() == {}, "belum boleh ada uang keluar sebelum disetujui"
-
-    s = g.invoke(Command(resume={"aksi": "setujui", "catatan": "ok"}), cfg("b"))
-    assert s["status_akhir"] == "dibayar" and s["persetujuan"]["aksi"] == "setujui"
-    assert len(tools.baca_ledger()) == 1
+def test_rute_setelah_nilai():
+    k = _state_dasar()["keputusan"]
+    gagal, lolos = {"lolos": False, "masalah": ["x"]}, {"lolos": True, "masalah": []}
+    assert rute_setelah_nilai({"penilaian": gagal, "jumlah_draf": 1, "keputusan": k}) == "tulis_memo"
+    assert rute_setelah_nilai({"penilaian": gagal, "jumlah_draf": 3, "keputusan": k}) != "tulis_memo", "jatah habis"
+    assert rute_setelah_nilai({"penilaian": lolos, "jumlah_draf": 1, "keputusan": k}) != "tulis_memo"
 
 
-def test_resume_string_tolak():
-    g = _g()
-    g.invoke({"permintaan": "Proses KLM-003"}, cfg("c"))
-    s = g.invoke(Command(resume="tolak"), cfg("c"))
-    assert s["status_akhir"] == "ditolak_atasan" and tools.baca_ledger() == {}
+def test_loop_di_graph():
+    s = build_graph().invoke({"permintaan": "Proses klaim KLM-002"})
+    assert s["jumlah_draf"] == 2 and s["penilaian"]["lolos"] is True
+    assert sum(b.startswith("tulis_memo") for b in s["log"]) == 2
 
 
-def test_revisi_kembali_ke_penulis_lalu_berhenti_lagi():
-    g = _g()
-    g.invoke({"permintaan": "Proses KLM-001"}, cfg("d"))
-    s = g.invoke(Command(resume={"aksi": "revisi", "catatan": "sebut nama hotel"}), cfg("d"))
-    assert "__interrupt__" in s, "setelah revisi, memo baru harus disetujui lagi"
-    assert s["persetujuan"]["catatan"] == "sebut nama hotel"
-    assert sum(b.startswith("tulis_memo") for b in s["log"]) >= 3
+def test_tanpa_jatah_revisi(monkeypatch):
+    monkeypatch.setenv("MAX_REVISI", "0")
+    s = build_graph().invoke({"permintaan": "Proses klaim KLM-002"})
+    assert s["jumlah_draf"] == 1 and s["penilaian"]["lolos"] is False
 
 
-def test_injeksi_tidak_mengubah_keputusan():
-    s = _g().invoke({"permintaan": "Proses KLM-004"}, cfg("e"))
-    p = s["__interrupt__"][0].value
-    assert p["keputusan"] == "disetujui sebagian" and p["total_disetujui"] == "Rp1.030.000"
-    assert p["peringatan"] and "APPROVED" not in p["memo"]
+def test_loop_berhenti_di_batas(monkeypatch):
+    import app.nodes as n
 
-
-def test_tolak_otomatis_tanpa_atasan():
-    s = _g().invoke({"permintaan": "Proses KLM-005"}, cfg("f"))
-    assert s["status_akhir"] == "ditolak_otomatis" and "__interrupt__" not in s
-
-
-def test_resume_tanpa_checkpointer_gagal():
-    g = build_graph()
-    assert "__interrupt__" in g.invoke({"permintaan": "Proses KLM-001"}, cfg("g"))
-    with pytest.raises(RuntimeError, match="checkpointer"):
-        g.invoke(Command(resume="setujui"), cfg("g"))
-
-
-def test_app_py_berhenti_lalu_dilanjutkan_dari_proses_baru():
-    """`uv run app.py` berhenti di interrupt; `--lanjut setujui` dari proses lain melanjutkannya."""
-    import os
-    import subprocess
-    import sys
-
-    from conftest import KODE
-
-    def app(*args):
-        return subprocess.run([sys.executable, "app.py", *args], cwd=KODE, env=dict(os.environ),
-                              capture_output=True, text=True, timeout=120)
-
-    r = app("Proses klaim KLM-001", "--thread", "hitl-12")
-    assert r.returncode == 0 and "berhenti di persetujuan" in r.stdout, r.stdout + r.stderr
-    r = app("--thread", "hitl-12", "--lanjut", "setujui")
-    assert r.returncode == 0 and '"dibayar"' in r.stdout, r.stdout + r.stderr
+    monkeypatch.setattr(n, "cek_memo_aturan", lambda *a: ["selalu gagal"])
+    s = build_graph().invoke({"permintaan": "Proses klaim KLM-002"})
+    assert s["jumlah_draf"] == 3, "1 draf + MAX_REVISI(2) revisi, lalu berhenti"
