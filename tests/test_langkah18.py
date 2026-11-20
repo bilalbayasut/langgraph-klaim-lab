@@ -16,7 +16,7 @@ def test_satu_trace_berisi_node_dan_tool():
     graph = [b for b in baris if b["jenis"] == "graph"]
     assert len(graph) == 1 and graph[0]["parent"] is None
     node = [b["nama"] for b in baris if b["jenis"] == "node"]
-    assert node == ["router", "asisten", "alat", "asisten"] or sorted(node) == sorted(["router", "asisten", "alat", "asisten"])
+    assert node[:2] == ["router", "asisten"] and node[-1] == "asisten" and "alat" in node     # (+ "izin" mulai Langkah 24)
     tool = {b["nama"] for b in baris if b["jenis"] == "tool"}
     assert tool == {"profil_karyawan", "cari_kebijakan"}
     assert all(b["durasi_ms"] >= 0 for b in baris)

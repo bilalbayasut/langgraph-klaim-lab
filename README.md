@@ -2,9 +2,13 @@
 
 Lab belajar **LangGraph dari nol, langkah demi langkah**. Satu proyek utuh: agent **klaim reimbursement karyawan**.
 
-Kamu mulai dari graph 1 node (1 superstep), lalu menambah satu konsep per langkah sampai graph lengkap:
+Kamu mulai dari graph 1 node (1 superstep), lalu menambah satu konsep per langkah sampai sistem lengkap, dibagi mengikuti 3 hari pelatihan:
 
-> state & superstep → edge berurutan → reducer → conditional edge → paralel & join → map-reduce `Send` → LLM structured output → guardrail → **RAG ChromaDB** → loop evaluator-optimizer → checkpointer & time travel → human-in-the-loop (`interrupt`) → `RetryPolicy` & idempotensi → streaming → **LangGraph Studio** → supervisor / handoff / planner → LLM sungguhan
+> **Hari 1:** state & superstep → reducer → routing → structured output → **function calling** → **MCP** → **RAG** (juga sebagai tool) → **evaluasi**
+>
+> **Hari 2:** paralel & `Send` → evaluator-optimizer → checkpoint & time travel → human-in-the-loop → retry & resume → supervisor / handoff / planner → streaming → **tracing** → **FastAPI + Docker** → Studio
+>
+> **Hari 3:** guardrail input/output → **data confidential** → injeksi lewat tool/MCP & **least privilege** → **approval aksi berisiko** & **secret management** → capstone
 
 Domainnya jauh lebih sederhana daripada `ggf-qc-agent`, tapi keluasan materi LangGraph-nya sama.
 
@@ -36,6 +40,7 @@ Tidak ada perintah bantu khusus. Semuanya file Python biasa dan `pytest`:
 | `uv run python -m app.jejak <thread>` | Tracer lokal: pohon node, LLM, dan tool beserta durasinya (Langkah 18) |
 | `uv run api.py` | API HTTP di http://127.0.0.1:8000/docs (Langkah 19) |
 | `docker compose up --build` | Jalankan API di Docker (Langkah 19) |
+| `uv run python -m app.privasi <thread>` | Audit data confidential di checkpoint dan jejak (Langkah 22) |
 | `uv run langgraph dev` | LangGraph Studio di browser |
 | F5 di VS Code | Debugger dengan breakpoint di node (`.vscode/launch.json`) |
 | `cd _kunci/langkah-05 && uv run app.py "..."` | Jalankan kunci jawaban langkah 5 |
@@ -47,8 +52,9 @@ langgraph-klaim-lab/
 ├── LAB.md               # panduan lab langkah demi langkah  ← mulai di sini
 ├── app/                 # KAMU yang menulis isinya
 ├── app.py               # KAMU yang menulis: menjalankan graph dari terminal
-├── mcp_server/         # KAMU yang menulis: MCP server tiruan "aplikasi HR/Finance" (Langkah 7)
+├── mcp_server/         # KAMU yang menulis: MCP server (HR/Finance, vendor "nakal", template capstone)
 ├── evaluasi.py         # KAMU yang menulis: evaluasi agent + kasus_eval.jsonl (Langkah 9)
+├── api.py, Dockerfile  # KAMU yang menulis: API HTTP + kemasan Docker (Langkah 19)
 ├── tests/               # test_langkahNN.py, satu file per langkah
 ├── scripts/             # bangun_kunci.py: alat pengelola lab (membangun _kunci/ dari LAB.md)
 ├── data/

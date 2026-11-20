@@ -1,7 +1,7 @@
 {
-  "EMP-01": {"nama": "Andi Pratama", "departemen": "Sales", "atasan": "Rina (Sales Manager)", "sisa_anggaran": 8000000},
-  "EMP-02": {"nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Marketing Lead)", "sisa_anggaran": 3000000},
-  "EMP-03": {"nama": "Budi Santoso", "departemen": "IT", "atasan": "Maya (IT Manager)", "sisa_anggaran": 6000000},
-  "EMP-04": {"nama": "Dewi Lestari", "departemen": "Finance", "atasan": "Hadi (CFO)", "sisa_anggaran": 5000000},
-  "EMP-05": {"nama": "Eko Saputra", "departemen": "Operasional", "atasan": "Lina (Ops Manager)", "sisa_anggaran": 400000}
+  "EMP-01": {"nama": "Andi Pratama", "departemen": "Sales", "atasan": "Rina (Sales Manager)", "sisa_anggaran": 8000000, "nik": "3273011203900001", "no_rekening": "0123456781", "email": "andi.pratama@contoh.co.id"},
+  "EMP-02": {"nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Marketing Lead)", "sisa_anggaran": 3000000, "nik": "3174024506920002", "no_rekening": "0123456782", "email": "sari.wulandari@contoh.co.id"},
+  "EMP-03": {"nama": "Budi Santoso", "departemen": "IT", "atasan": "Maya (IT Manager)", "sisa_anggaran": 6000000, "nik": "3578031108880003", "no_rekening": "0123456783", "email": "budi.santoso@contoh.co.id"},
+  "EMP-04": {"nama": "Dewi Lestari", "departemen": "Finance", "atasan": "Hadi (CFO)", "sisa_anggaran": 5000000, "nik": "3171046702910004", "no_rekening": "0123456784", "email": "dewi.lestari@contoh.co.id"},
+  "EMP-05": {"nama": "Eko Saputra", "departemen": "Operasional", "atasan": "Lina (Ops Manager)", "sisa_anggaran": 400000, "nik": "3216051905930005", "no_rekening": "0123456785", "email": "eko.saputra@contoh.co.id"}
 }

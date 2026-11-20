@@ -8,7 +8,7 @@ Keputusan yang sudah diambil:
 - Tracing: **LangSmith** sebagai utama + **tracer lokal (JSONL)** yang tetap jalan tanpa internet.
 - Dikerjakan **bertahap per hari**. Setiap tahap: kode di LAB.md, test, kunci jawaban, contoh output terverifikasi.
 
-Status: **Tahap A, B, dan C selesai.** Hari 1 dan Hari 2 lengkap. Berikutnya Tahap D (Hari 3).
+Status: **Selesai (Tahap A–D).** Langkah 0–25 lengkap, semua kunci lolos test kumulatif. Yang belum: pre-reading H-7, materi use case per batch (menunggu dokumen GGF H-14), dan uji `docker build` sungguhan (Docker tidak tersedia di mesin pengembangan; isi image disimulasikan).
 
 ---
 
