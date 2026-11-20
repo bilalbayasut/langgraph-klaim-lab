@@ -5581,6 +5581,10 @@ Hal yang perlu dipahami:
 - **State di volume.** Tanpa volume, semua checkpoint hilang saat container dibuat ulang, dan `/lanjut` untuk klaim yang menunggu atasan akan gagal dengan 404.
 - MCP server ikut di image yang sama dan dijalankan sebagai proses anak lewat stdio. Kalau MCP server milik tim lain jalan sebagai layanan HTTP terpisah, image ini cukup berisi agent-nya saja.
 
+Kalau build langsung gagal di tahap `booting buildkit`:
+- **`docker-credential-osxkeychain: executable file not found`** (atau `desktop`): `~/.docker/config.json` masih berisi `"credsStore"` dari Docker Desktop/OrbStack yang sudah dihapus. Hapus baris `credsStore` itu (atau pasang kembali helper-nya), lalu build lagi.
+- **`Cannot connect to the Docker daemon`** atau pesan "stopped": aplikasi Docker-nya (Docker Desktop, OrbStack, Kiri, Rancher) belum dinyalakan.
+
 ### 19.5 Cadangan: tanpa Docker di laptop
 
 Kalau Docker tidak bisa dipasang (misalnya laptop kantor terkunci), pakai **Google Cloud Shell**, yang sudah berisi Docker:
