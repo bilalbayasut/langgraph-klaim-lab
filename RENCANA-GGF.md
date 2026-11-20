@@ -8,7 +8,7 @@ Keputusan yang sudah diambil:
 - Tracing: **LangSmith** sebagai utama + **tracer lokal (JSONL)** yang tetap jalan tanpa internet.
 - Dikerjakan **bertahap per hari**. Setiap tahap: kode di LAB.md, test, kunci jawaban, contoh output terverifikasi.
 
-Status: **Tahap A dan B selesai.** Hari 1 lengkap (function calling, MCP, retrieval sebagai tool, evaluasi). Berikutnya Tahap C (tracing, FastAPI + Docker).
+Status: **Tahap A, B, dan C selesai.** Hari 1 dan Hari 2 lengkap. Berikutnya Tahap D (Hari 3).
 
 ---
 

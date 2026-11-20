@@ -59,8 +59,8 @@ Lab ini dibagi mengikuti tiga hari pelatihan. Satu sistem yang sama berkembang d
 | [15](#langkah-15--keandalan-retry-idempotensi-crash) | Tahan gangguan | **Retry**, idempotensi, **resume** setelah crash |
 | [16](#langkah-16--pola-orkestrasi-lain) | Pola lain | **Supervisor**, **handoff**, **planner-executor** |
 | [17](#langkah-17--streaming) | Progres real-time | **Streaming** |
-| [18](#langkah-18--tracing) | Tracing *(menyusul)* | LangSmith + tracer lokal |
-| [19](#langkah-19--deploy-fastapi--docker) | Deploy *(menyusul)* | **FastAPI**, **Docker** |
+| [18](#langkah-18--tracing) | Tracing | LangSmith + tracer lokal |
+| [19](#langkah-19--deploy-fastapi--docker) | Deploy | **FastAPI**, **Docker** |
 | [20](#langkah-20--debugging-di-langgraph-studio) | Debugging | **LangGraph Studio** |
 | **Hari 3** | **Hardening dan capstone** | |
 | [21](#langkah-21--guardrail-input-dan-output) | Tahan prompt injection | **Guardrail** input dan output |
@@ -128,14 +128,14 @@ superstep 2: muat_klaim
     peringatan = []
     log = ["muat_klaim: 2 item"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
-    log = ["periksa_item KLM-002-2: ok"]
+    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
+    log = ["periksa_item KLM-002-1: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
     log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
-    log = ["periksa_item KLM-002-1: ok"]
+    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
+    log = ["periksa_item KLM-002-2: ok"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_penuh", "alasan": "semua item sesuai aturan", "total_diajukan": 180000, "total_di…
     log = ["putuskan: setujui_penuh, perlu_persetujuan=False"]
@@ -158,7 +158,7 @@ superstep 8: nilai_memo
 superstep 9: bayar
     pembayaran = {"kunci": "KLM-002:180000", "claim_id": "KLM-002", "jumlah": 180000, "ref": "TRF-0001", "duplikat":…
     status_akhir = "dibayar"
-… (25 baris berikutnya dipotong)
+… (27 baris berikutnya dipotong)
 ```
 <!-- /output -->
 
@@ -220,11 +220,14 @@ app/
 ├── asisten.py      # agent dengan function calling
 ├── mcp_klien.py    # client MCP: tool MCP -> tool LangChain
 ├── pantau.py       # contoh konsumen streaming
+├── jejak.py        # tracer lokal (callback)
 └── pola.py         # pola orkestrasi lain
 mcp_server/
 └── hr_finance.py   # MCP server tiruan "aplikasi HR/Finance"
 app.py              # menjalankan graph dari terminal (uv run app.py "...")
 evaluasi.py         # evaluasi agent dengan test case (kasus_eval.jsonl)
+api.py              # API HTTP (FastAPI)
+Dockerfile, docker-compose.yml, .dockerignore
 langgraph.json      # konfigurasi LangGraph Studio
 ```
 
@@ -3006,15 +3009,15 @@ superstep 2: muat_klaim
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-003-1", "kategori": "peralatan", "diajukan": 2100000, "disetujui": 2100000, "stat…
     log = ["periksa_item KLM-003-1: ok"]
-superstep 3: cek_karyawan
-    profil = {"karyawan_id": "EMP-03", "nama": "Budi Santoso", "departemen": "IT", "atasan": "Maya (IT Manager)"…
-    log = ["cek_karyawan: Budi Santoso, sisa anggaran Rp6.000.000"]
-superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-003-3", "kategori": "hiburan", "diajukan": 250000, "disetujui": 0, "status": "dit…
-    log = ["periksa_item KLM-003-3: ditolak"]
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-003-2", "kategori": "peralatan", "diajukan": 1350000, "disetujui": 0, "status": "…
     log = ["periksa_item KLM-003-2: ditolak"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-003-3", "kategori": "hiburan", "diajukan": 250000, "disetujui": 0, "status": "dit…
+    log = ["periksa_item KLM-003-3: ditolak"]
+superstep 3: cek_karyawan
+    profil = {"karyawan_id": "EMP-03", "nama": "Budi Santoso", "departemen": "IT", "atasan": "Maya (IT Manager)"…
+    log = ["cek_karyawan: Budi Santoso, sisa anggaran Rp6.000.000"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_sebagian", "alasan": "sebagian item dipotong atau ditolak", "total_diajukan": 370…
     log = ["putuskan: setujui_sebagian, perlu_persetujuan=True"]
@@ -3286,11 +3289,11 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
     log = ["muat_klaim: 2 item"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
-    log = ["periksa_item KLM-002-2: ok"]
-superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
     log = ["periksa_item KLM-002-1: ok"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
+    log = ["periksa_item KLM-002-2: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
     log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
@@ -3539,14 +3542,14 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
     log = ["muat_klaim: 2 item"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
-    log = ["periksa_item KLM-002-1: ok"]
+    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
+    log = ["periksa_item KLM-002-2: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
     log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
-    log = ["periksa_item KLM-002-2: ok"]
+    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
+    log = ["periksa_item KLM-002-1: ok"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_penuh", "alasan": "semua item sesuai aturan", "total_diajukan": 180000, "total_di…
     log = ["putuskan: setujui_penuh, perlu_persetujuan=False"]
@@ -3583,16 +3586,16 @@ thread: demo-13
 
 $ uv run app.py --thread demo-13 --riwayat
 step  sumber  next                           checkpoint_id
-   8  loop    -                              1f1e4d22-64f8-6370-8008-bb45b22e23df
-   7  loop    nilai_memo                     1f1e4d22-64f6-6e62-8007-b9285bd39231
-   6  loop    tulis_memo                     1f1e4d22-64f5-695e-8006-dfb800b4de24
-   5  loop    nilai_memo                     1f1e4d22-64f3-6d0c-8005-283f12d4529e
-   4  loop    tulis_memo                     1f1e4d22-64f2-64ac-8004-69387e035fac
-   3  loop    putuskan                       1f1e4d22-64f1-616a-8003-12d0ba4de2e8
-   2  loop    periksa_item, periksa_item, ce 1f1e4d22-64ec-644e-8002-4769767f3de9
-   1  loop    muat_klaim                     1f1e4d22-64ea-6950-8001-650b4dd8563c
-   0  loop    router                         1f1e4d22-64e8-6844-8000-5cfb7561a7ae
-  -1  input   __start__                      1f1e4d22-64e6-67ec-bfff-2895ae53a012
+   8  loop    -                              1f1e4d36-bd6f-6a44-8008-116b223914a6
+   7  loop    nilai_memo                     1f1e4d36-bd6e-6cac-8007-8c4e415b4dea
+   6  loop    tulis_memo                     1f1e4d36-bd6d-6e1a-8006-0f93d0785fdd
+   5  loop    nilai_memo                     1f1e4d36-bd6c-68ee-8005-a17abe9000e3
+   4  loop    tulis_memo                     1f1e4d36-bd6b-699e-8004-e127a2b35f1a
+   3  loop    putuskan                       1f1e4d36-bd6a-683c-8003-f1c445a2996b
+   2  loop    periksa_item, periksa_item, ce 1f1e4d36-bd66-6e26-8002-a7f30aceb659
+   1  loop    muat_klaim                     1f1e4d36-bd65-66b6-8001-6b246dfac566
+   0  loop    router                         1f1e4d36-bd63-6186-8000-0e79d78df4af
+  -1  input   __start__                      1f1e4d36-bd60-6e2c-bfff-feb18c0d5d92
 ```
 <!-- /output -->
 
@@ -4032,17 +4035,17 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-001", "karyawan_id": "EMP-01", "judul": "Kunjungan klien Bandung", "tanggal": "20…
     log = ["muat_klaim: 3 item"]
 superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-001-2", "kategori": "makan", "diajukan": 180000, "disetujui": 150000, "status": "…
+    log = ["periksa_item KLM-001-2: dipotong"]
+superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-001-1", "kategori": "hotel", "diajukan": 650000, "disetujui": 650000, "status": "…
     log = ["periksa_item KLM-001-1: ok"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-001-2", "kategori": "makan", "diajukan": 180000, "disetujui": 150000, "status": "…
-    log = ["periksa_item KLM-001-2: dipotong"]
+    hasil_item = [{"item_id": "KLM-001-3", "kategori": "transport", "diajukan": 220000, "disetujui": 220000, "status…
+    log = ["periksa_item KLM-001-3: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-01", "nama": "Andi Pratama", "departemen": "Sales", "atasan": "Rina (Sales Man…
     log = ["cek_karyawan: Andi Pratama, sisa anggaran Rp8.000.000"]
-superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-001-3", "kategori": "transport", "diajukan": 220000, "disetujui": 220000, "status…
-    log = ["periksa_item KLM-001-3: ok"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_sebagian", "alasan": "sebagian item dipotong atau ditolak", "total_diajukan": 105…
     log = ["putuskan: setujui_sebagian, perlu_persetujuan=True"]
@@ -4457,14 +4460,14 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
     log = ["muat_klaim: 2 item"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
-    log = ["periksa_item KLM-002-1: ok"]
-superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
     log = ["periksa_item KLM-002-2: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
     log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
+    log = ["periksa_item KLM-002-1: ok"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_penuh", "alasan": "semua item sesuai aturan", "total_diajukan": 180000, "total_di…
     log = ["putuskan: setujui_penuh, perlu_persetujuan=False"]
@@ -4487,14 +4490,14 @@ superstep 8: nilai_memo
 
 $ uv run app.py --thread crash-15 --lanjut
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
-    log = ["periksa_item KLM-002-1: ok"]
+    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
+    log = ["periksa_item KLM-002-2: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
     log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
-    log = ["periksa_item KLM-002-2: ok"]
+    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
+    log = ["periksa_item KLM-002-1: ok"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_penuh", "alasan": "semua item sesuai aturan", "total_diajukan": 180000, "total_di…
     log = ["putuskan: setujui_penuh, perlu_persetujuan=False"]
@@ -4944,9 +4947,9 @@ for potongan in graph.stream({"permintaan": "Proses klaim KLM-002"}, stream_mode
 $ uv run python -m app.pantau "Proses klaim KLM-002"
 ✔ router: router: klaim (menyebut nomor klaim)
 ✔ muat_klaim: muat_klaim: 2 item
-✔ cek_karyawan: cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000
 ✔ periksa_item: periksa_item KLM-002-1: ok
 ✔ periksa_item: periksa_item KLM-002-2: ok
+✔ cek_karyawan: cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000
 ✔ putuskan: putuskan: setujui_penuh, perlu_persetujuan=False
 ✔ tulis_memo: tulis_memo: draf ke-1
 ✔ nilai_memo: nilai_memo: skor 5, lolos=False
@@ -5019,8 +5022,8 @@ Bandingkan bentuk mentah setiap mode dengan `coba_stream.py`:
 $ uv run coba_stream.py updates
 {'router': {'rute': 'klaim', 'claim_id': 'KLM-002', 'log': ['router: klaim (menyebut nomor klaim)']}}
 {'muat_klaim': {'klaim': {'claim_id': 'KLM-002', 'karyawan_id': 'EMP-02', 'judul': 'Rapat vendor di Sudirman', 'tanggal': '2026-11-05', 'item': [{'item_id': 'KLM-002-1', 'kategori': 'transport', 'jumlah': 85000, 'ada_struk': True, 'keterangan': 'Taksi pulang pergi'}, {'item_id': 'KLM-002-2', 'kategori': 'makan', 'jumlah': 95000, 'ada_struk': True, 'keterangan': 'Makan siang'}]}, 'log': ['muat_klaim: 2 item']}}
-{'periksa_item': {'hasil_item': [{'item_id': 'KLM-002-2', 'kategori': 'makan', 'diajukan': 95000, 'disetujui': 95000, 'status': 'ok', 'alasan': 'sesuai aturan'}], 'log': ['periksa_item KLM-002-2: ok']}}
 {'periksa_item': {'hasil_item': [{'item_id': 'KLM-002-1', 'kategori': 'transport', 'diajukan': 85000, 'disetujui': 85000, 'status': 'ok', 'alasan': 'sesuai aturan'}], 'log': ['periksa_item KLM-002-1: ok']}}
+{'periksa_item': {'hasil_item': [{'item_id': 'KLM-002-2', 'kategori': 'makan', 'diajukan': 95000, 'disetujui': 95000, 'status': 'ok', 'alasan': 'sesuai aturan'}], 'log': ['periksa_item KLM-002-2: ok']}}
 {'cek_karyawan': {'profil': {'karyawan_id': 'EMP-02', 'nama': 'Sari Wulandari', 'departemen': 'Marketing', 'atasan': 'Tono (Marketing Lead)', 'sisa_anggaran': 3000000}, 'log': ['cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000']}}
 … (7 baris berikutnya dipotong)
 ```
@@ -5064,13 +5067,538 @@ uv run pytest tests/test_langkah17.py
 
 ## Langkah 18 — Tracing
 
-> **Menyusul.** LangSmith + tracer lokal (JSONL) yang jalan tanpa internet. Ditulis di Tahap C.
+**Tujuan:** setelah agent jalan, kita perlu tahu **apa yang terjadi di dalamnya**: node mana yang lambat, tool apa yang dipanggil dengan argumen apa, berapa token yang habis, dan di mana error terjadi. Itulah **tracing**. Kita memasang dua jenis: **LangSmith** (UI web, paling lengkap) dan **tracer lokal** buatan sendiri yang tetap jalan tanpa internet.
+
+**Konsep baru:** trace dan span (pohon run), **callback** LangChain, LangSmith, `config["callbacks"]`, latensi dan token per span.
+
+### 18.1 Konsep
+
+Setiap kali graph jalan, LangChain membentuk **pohon run**:
+
+```
+graph LangGraph                       <- satu trace
+  node  router         superstep 1    <- span
+  node  asisten        superstep 2
+    llm   deepseek-v4-flash   token 512->38
+  node  alat           superstep 3
+    tool  profil_karyawan
+    tool  cari_kebijakan
+```
+
+Di setiap awal dan akhir run, LangChain memanggil **callback**: `on_chain_start`, `on_chain_end`, `on_chat_model_start`, `on_llm_end`, `on_tool_start`, `on_tool_end`, dan seterusnya. Semua alat tracing, termasuk LangSmith, bekerja dengan cara ini. Callback dipasang lewat `config`:
+
+```python
+graph.stream(masukan, {"configurable": {...}, "callbacks": [PencatatJejak(...)]})
+```
+
+Callback otomatis diteruskan ke **semua** node, LLM, dan tool di dalam graph. Tidak ada kode node yang perlu diubah.
+
+| | LangSmith | Tracer lokal (`app/jejak.py`) |
+|---|---|---|
+| Cara pasang | Cukup environment variable | Callback di `config` |
+| Butuh internet & akun | Ya | Tidak |
+| Data keluar dari laptop | Ya (ke server LangSmith) | Tidak |
+| Isi | Lengkap: input/output, prompt, token, UI | Ringkas: durasi, token, hasil node dan tool |
+
+### 18.2 LangSmith
+
+1. Buat akun di https://smith.langchain.com, lalu buat API key di **Settings → API Keys**.
+2. Isi `.env`:
+
+   ```bash
+   LANGSMITH_TRACING=true
+   LANGSMITH_API_KEY=lsv2_...
+   LANGSMITH_PROJECT=klaim-lab-namamu
+   ```
+
+3. Jalankan apa pun, misalnya `uv run app.py "Berapa sisa anggaran Sari?"`, lalu buka project-mu di LangSmith. Setiap run tampil sebagai pohon. Klik span `llm` untuk melihat **prompt persis** yang dikirim ke model beserta respons dan token-nya.
+
+Tidak ada kode yang berubah, karena LangChain membaca variabel itu sendiri. Ingat bahwa input dan output **dikirim ke server LangSmith**. Cara menyamarkan data sensitif sebelum terkirim dibahas di Langkah 22.
+
+### 18.3 Tracer lokal
+
+📄 **`app/jejak.py`** (file baru)
+
+<!-- kode: app/jejak.py | penuh -->
+```python
+"""Tracer lokal: catat graph, node, LLM, dan tool ke file JSONL. Jalan tanpa internet.
+
+    uv run python -m app.jejak <thread_id>           # tampilkan jejak satu thread sebagai pohon
+    uv run python -m app.jejak <thread_id> --semua   # termasuk langkah internal (fungsi rute, dll.)
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+import threading
+import time
+from pathlib import Path
+
+from langchain_core.callbacks import BaseCallbackHandler
+
+from app.config import get_settings
+
+
+def _singkat(nilai, maks: int = 300) -> str:
+    teks = json.dumps(nilai, ensure_ascii=False, default=str)
+    return teks if len(teks) <= maks else teks[: maks - 1] + "…"
+
+
+class PencatatJejak(BaseCallbackHandler):
+    """Callback LangChain: dipanggil setiap kali graph, node, LLM, atau tool mulai dan selesai."""
+
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._terbuka: dict[str, dict] = {}            # run_id -> info saat mulai
+        self._kunci = threading.Lock()                 # node paralel memanggil callback dari banyak thread
+
+    # ------------------------------------------------------------ pencatatan
+    def _mulai(self, run_id, parent_run_id, jenis: str, nama: str, metadata: dict | None, masukan=None) -> None:
+        self._terbuka[str(run_id)] = {
+            "jenis": jenis, "nama": nama, "parent": str(parent_run_id) if parent_run_id else None,
+            "superstep": (metadata or {}).get("langgraph_step"), "waktu": time.time(), "t0": time.perf_counter(),
+            "masukan": masukan,
+        }
+
+    def _selesai(self, run_id, **hasil) -> None:
+        info = self._terbuka.pop(str(run_id), None)
+        if info is None:
+            return
+        baris = {"run_id": str(run_id), **{k: v for k, v in info.items() if k != "t0"},
+                 "durasi_ms": round((time.perf_counter() - info["t0"]) * 1000, 1), **hasil}
+        self._tulis(baris)
+
+    def _tulis(self, baris: dict) -> None:
+        with self._kunci, self.path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(baris, ensure_ascii=False, default=str) + "\n")
+
+    # ------------------------------------------------------------ graph & node
+    def on_chain_start(self, serialized, inputs, *, run_id, parent_run_id=None, metadata=None, **kw):
+        nama = kw.get("name") or (serialized or {}).get("name") or "?"
+        jenis = "graph" if parent_run_id is None else ("node" if (metadata or {}).get("langgraph_node") == nama else "langkah")
+        self._mulai(run_id, parent_run_id, jenis, nama, metadata)
+
+    def on_chain_end(self, outputs, *, run_id, **kw):
+        info = self._terbuka.get(str(run_id), {})
+        self._selesai(run_id, keluaran=_singkat(outputs) if info.get("jenis") == "node" else None)
+
+    def on_chain_error(self, error, *, run_id, **kw):
+        self._selesai(run_id, error=repr(error))
+
+    # ------------------------------------------------------------ LLM
+    def on_chat_model_start(self, serialized, messages, *, run_id, parent_run_id=None, metadata=None, **kw):
+        nama = (metadata or {}).get("ls_model_name") or kw.get("name") or "llm"
+        self._mulai(run_id, parent_run_id, "llm", nama, metadata)
+
+    def on_llm_end(self, response, *, run_id, **kw):
+        pesan = response.generations[0][0].message if response.generations and response.generations[0] else None
+        self._selesai(run_id, token=getattr(pesan, "usage_metadata", None))
+
+    def on_llm_error(self, error, *, run_id, **kw):
+        self._selesai(run_id, error=repr(error))
+
+    # ------------------------------------------------------------ tool
+    def on_tool_start(self, serialized, input_str, *, run_id, parent_run_id=None, metadata=None, **kw):
+        nama = (serialized or {}).get("name") or kw.get("name") or "tool"
+        self._mulai(run_id, parent_run_id, "tool", nama, metadata, masukan=input_str)
+
+    def on_tool_end(self, output, *, run_id, **kw):
+        self._selesai(run_id, keluaran=_singkat(getattr(output, "content", output)))
+
+    def on_tool_error(self, error, *, run_id, **kw):
+        self._selesai(run_id, error=repr(error))
+
+
+# ======================================================================= menampilkan jejak
+def path_jejak(thread_id: str) -> Path:
+    return get_settings().runtime_dir / "jejak" / f"{thread_id}.jsonl"
+
+
+def tampilkan(thread_id: str, semua: bool = False) -> None:
+    """Cetak jejak sebagai pohon. Default: hanya graph, node, LLM, dan tool (langkah internal disembunyikan)."""
+    baris = [json.loads(b) for b in path_jejak(thread_id).read_text(encoding="utf-8").splitlines() if b.strip()]
+    anak: dict[str | None, list[dict]] = {}
+    ada = {b["run_id"] for b in baris}
+    for b in baris:
+        induk = b["parent"] if b["parent"] in ada else None
+        anak.setdefault(induk, []).append(b)
+
+    def cetak(b: dict, kedalaman: int) -> None:
+        tampil = semua or b["jenis"] != "langkah"
+        if tampil:
+            info = f"  superstep {b['superstep']}" if b.get("superstep") is not None and b["jenis"] == "node" else ""
+            if b.get("token"):
+                info += f"  token {b['token'].get('input_tokens')}->{b['token'].get('output_tokens')}"
+            if b.get("error"):
+                info += f"  ✖ {b['error'][:80]}"
+            print(f"{'  ' * kedalaman}{b['jenis']:<5} {b['nama']:<22} {b['durasi_ms']:>8.1f} ms{info}")
+        for c in sorted(anak.get(b["run_id"], []), key=lambda x: x["waktu"]):
+            cetak(c, kedalaman + 1 if tampil else kedalaman)
+
+    for akar in sorted(anak.get(None, []), key=lambda x: x["waktu"]):
+        cetak(akar, 0)
+
+
+if __name__ == "__main__":
+    tampilkan(sys.argv[1], semua="--semua" in sys.argv)
+```
+
+➕ **`app.py`**: tambahkan. `jalankan` **diganti**: setiap run dicatat ke `runtime/jejak/<thread>.jsonl`.
+
+<!-- kode: app.py | tambah -->
+```python
+from app.config import get_settings
+from app.jejak import PencatatJejak
+
+
+def jalankan(graph, masukan, config=None) -> None:
+    """Jalankan graph dan cetak apa yang ditulis setiap node, per superstep.
+
+    Dua stream_mode sekaligus, jadi setiap potongan berbentuk tuple (mode, data):
+      "debug"  -> event saat node mulai ("task") dan selesai ("task_result"), lengkap dengan nomor superstep
+      "custom" -> pesan yang dikirim node lewat get_stream_writer()
+
+    Tracing: PencatatJejak (callback) mencatat setiap node, LLM, dan tool ke runtime/jejak/<thread>.jsonl.
+
+    Kalau sebuah node gagal (setelah semua retry habis), graph.stream melempar exception.
+    Checkpoint superstep terakhir yang SUKSES tetap tersimpan, jadi run bisa dilanjutkan.
+    """
+    thread = config["configurable"]["thread_id"]
+    config = {**config, "callbacks": [PencatatJejak(get_settings().runtime_dir / "jejak" / f"{thread}.jsonl")]}
+    try:
+        for mode, data in graph.stream(masukan, config, stream_mode=["debug", "custom"]):
+            if mode == "custom":                      # dari get_stream_writer(), misalnya di node bayar
+                print(f"    📣 {ringkas(data)}")
+                continue
+            event = data
+            if event["type"] != "task_result":       # hanya tampilkan node yang SELESAI
+                continue
+            node = event["payload"]                   # {"name", "result", "error", "interrupts"}
+            if node["error"]:
+                print(f"superstep {event['step']}: {node['name']} ✖ GAGAL: {node['error']}")
+                continue
+            if node["interrupts"]:                    # node memanggil interrupt(): graph berhenti di sini
+                print(f"superstep {event['step']}: {node['name']} ⏸ memanggil interrupt")
+                continue
+            print(f"superstep {event['step']}: {node['name']}")
+            for field, nilai in (node["result"] or {}).items():
+                print(f"    {field} = {ringkas(nilai)}")
+    except Exception as e:  # noqa: BLE001
+        print(f"\n✖ graph berhenti: {type(e).__name__}: {e}")
+        print(f"checkpoint terakhir tetap tersimpan. Setelah masalahnya beres: uv run app.py --thread {thread} --lanjut")
+        raise SystemExit(1)
+    print(f"\njejak: uv run python -m app.jejak {thread}")
+```
+
+### 18.4 Jalankan dan amati
+
+<!-- output: 18 | uv run app.py "Berapa sisa anggaran Sari, dan bolehkah klaim hotel tanpa struk?" --thread demo-18 > /dev/null && uv run python -m app.jejak demo-18 -->
+```text
+$ uv run app.py "Berapa sisa anggaran Sari, dan bolehkah klaim hotel tanpa struk?" --thread demo-18 > /dev/null
+
+$ uv run python -m app.jejak demo-18
+graph LangGraph                1308.2 ms
+  node  router                      0.5 ms  superstep 1
+  node  asisten                     0.7 ms  superstep 2
+  node  alat                     1300.7 ms  superstep 3
+    tool  profil_karyawan           572.6 ms
+    tool  cari_kebijakan           1299.2 ms
+  node  asisten                     0.5 ms  superstep 4
+```
+<!-- /output -->
+
+Baca angkanya:
+- Node `asisten` hanya sekitar 1 ms, karena di mode mock tidak ada LLM. Di mode live, di bawahnya muncul span `llm` dengan durasi ratusan ms dan jumlah token.
+- `profil_karyawan` butuh sekitar setengah detik, padahal datanya kecil. Itu biaya **menjalankan proses MCP server baru** di setiap panggilan (lihat `panggil_tool` di `app/mcp_klien.py`). Di produksi, sesi MCP dibuka sekali lalu dipakai ulang.
+- Dua tool di superstep yang sama jalan **paralel**: durasi node `alat` kira-kira sama dengan tool yang paling lambat, bukan jumlah keduanya.
+
+Isi mentahnya juga bisa dibaca dengan alat apa pun, karena setiap baris adalah satu JSON:
+
+```bash
+tail -n 3 runtime/jejak/demo-18.jsonl
+```
+
+### 18.5 Eksperimen
+
+1. **(Live)** `LLM_MODE=live uv run app.py "Berapa sisa anggaran Sari?" --thread live-18`, lalu `uv run python -m app.jejak live-18`. Bandingkan jumlah token di dua span `llm`: putaran kedua lebih besar, karena hasil tool ikut dikirim ke LLM.
+2. **Cari bottleneck.** Jalankan `uv run app.py "Proses klaim KLM-001" --thread t18`. Node mana yang paling lama? Lalu `HR_GAGAL_N_KALI=2 uv run app.py "Proses klaim KLM-002" --thread t18b` dan lihat jejaknya: retry di `cek_karyawan` (Langkah 15) terlihat sebagai durasi yang memanjang.
+3. **Lihat semuanya:** `uv run python -m app.jejak demo-18 --semua` juga menampilkan langkah internal, misalnya fungsi rute `rute_setelah_router` dan `tools_condition`.
+
+### 18.6 Cek
+
+```bash
+uv run pytest tests/test_langkah18.py
+```
 
 ---
 
 ## Langkah 19 — Deploy: FastAPI + Docker
 
-> **Menyusul.** `api.py`, `Dockerfile`, dan `docker-compose.yml`. Ditulis di Tahap C.
+**Tujuan:** agent bisa dipakai aplikasi lain lewat **HTTP**, lalu dikemas dalam **Docker** supaya jalan sama persis di laptop, server, atau cloud.
+
+**Konsep baru:** API di depan graph, endpoint untuk human-in-the-loop, **Server-Sent Events** (streaming ke klien), state di luar proses (checkpointer + volume), `Dockerfile`, `docker compose`, `.dockerignore`.
+
+### 19.1 Konsep
+
+```
+ klien (web, mobile, aplikasi internal)
+      │  HTTP / JSON
+      ▼
+ api.py (FastAPI)  ──►  graph (LangGraph)  ──►  checkpointer SQLite  (volume Docker: state bertahan)
+                                          └──►  MCP server, ChromaDB, LLM gateway
+```
+
+| Endpoint | Fungsi | Padanan di `app.py` |
+|---|---|---|
+| `POST /klaim` | jalankan permintaan baru | `uv run app.py "..."` |
+| `POST /klaim/{thread_id}/lanjut` | jawab interrupt (setujui / revisi / tolak) | `--lanjut setujui` |
+| `GET /klaim/{thread_id}` | status dan hasil terakhir | `--status` |
+| `POST /klaim/stream` | progres real-time (SSE) | streaming (Langkah 17) |
+
+Perhatikan bahwa API **tidak menyimpan state di memori proses**. Semua ada di checkpointer. Karena itu klien boleh memanggil `/lanjut` besok pagi, dari perangkat lain, setelah server di-restart. Inilah alasan Langkah 13 dan 14 penting untuk deployment.
+
+### 19.2 Tulis kode
+
+📄 **`api.py`** (file baru, di folder utama)
+
+<!-- kode: api.py | penuh -->
+```python
+"""API HTTP untuk graph klaim.
+
+    uv run api.py                 # buka http://127.0.0.1:8000/docs untuk mencoba
+"""
+
+from __future__ import annotations
+
+import json
+import uuid
+
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
+from langgraph.types import Command
+from pydantic import BaseModel
+
+from app.graph import build_graph, buka_sqlite
+
+graph = build_graph(checkpointer=buka_sqlite())          # state di SQLite, bukan di memori proses
+app = FastAPI(title="Agent klaim reimbursement")
+
+
+class Permintaan(BaseModel):
+    permintaan: str
+    thread_id: str | None = None                          # kosong = thread baru
+
+
+class JawabanAtasan(BaseModel):
+    aksi: str                                             # setujui / revisi / tolak
+    catatan: str = ""
+
+
+def _config(thread_id: str) -> dict:
+    return {"configurable": {"thread_id": thread_id}}
+
+
+def _ringkasan(thread_id: str) -> dict:
+    """Bentuk respons yang sama untuk semua endpoint: dibaca dari checkpoint terakhir."""
+    snap = graph.get_state(_config(thread_id))
+    if not snap.values:
+        raise HTTPException(404, f"thread {thread_id} tidak ditemukan")
+    v = snap.values
+    hasil = {
+        "thread_id": thread_id,
+        "status": "menunggu_persetujuan" if snap.interrupts else ("selesai" if not snap.next else "berhenti"),
+        "rute": v.get("rute"), "status_akhir": v.get("status_akhir"), "jawaban": v.get("jawaban"),
+        "keputusan": {k: v["keputusan"][k] for k in ("aksi", "alasan", "total_disetujui")} if v.get("keputusan") else None,
+    }
+    if snap.interrupts:
+        hasil["menunggu"] = snap.interrupts[0].value      # data yang ditunjukkan ke atasan
+    return hasil
+
+
+@app.get("/health")
+def health() -> dict:
+    return {"ok": True}
+
+
+@app.post("/klaim")
+def proses(p: Permintaan) -> dict:
+    thread_id = p.thread_id or f"api-{uuid.uuid4().hex[:8]}"
+    graph.invoke({"permintaan": p.permintaan}, _config(thread_id))
+    return _ringkasan(thread_id)
+
+
+@app.post("/klaim/{thread_id}/lanjut")
+def lanjut(thread_id: str, j: JawabanAtasan) -> dict:
+    if not graph.get_state(_config(thread_id)).interrupts:
+        raise HTTPException(409, "thread ini tidak sedang menunggu persetujuan")
+    graph.invoke(Command(resume=j.model_dump()), _config(thread_id))
+    return _ringkasan(thread_id)
+
+
+@app.get("/klaim/{thread_id}")
+def status(thread_id: str) -> dict:
+    return _ringkasan(thread_id)
+
+
+@app.post("/klaim/stream")
+def proses_stream(p: Permintaan) -> StreamingResponse:
+    """Server-Sent Events: satu event per node yang selesai, progres dari node bayar, lalu ringkasan."""
+    thread_id = p.thread_id or f"api-{uuid.uuid4().hex[:8]}"
+
+    def event(jenis: str, data: dict) -> str:
+        return f"event: {jenis}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
+
+    def aliran():
+        for mode, data in graph.stream({"permintaan": p.permintaan}, _config(thread_id),
+                                       stream_mode=["updates", "custom"]):
+            if mode == "custom":
+                yield event("progres", data)
+            else:
+                for node in data:
+                    yield event("node", {"node": node})
+        yield event("selesai", _ringkasan(thread_id))
+
+    return StreamingResponse(aliran(), media_type="text/event-stream")
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="127.0.0.1", port=8000)
+```
+
+Endpoint ditulis dengan `def` biasa, bukan `async def`. FastAPI menjalankannya di thread pool, sehingga `graph.invoke` yang sinkron tidak memblokir request lain.
+
+### 19.3 Jalankan dan amati
+
+```bash
+uv run api.py
+```
+
+Buka http://127.0.0.1:8000/docs. FastAPI membuat halaman uji otomatis dari type hint. Atau pakai `curl` dari terminal lain:
+
+```bash
+curl -s -X POST localhost:8000/klaim -H 'content-type: application/json' \
+     -d '{"permintaan": "Proses klaim KLM-001", "thread_id": "web-1"}'
+# -> "status": "menunggu_persetujuan", "menunggu": {... memo, total ...}
+
+curl -s -X POST localhost:8000/klaim/web-1/lanjut -H 'content-type: application/json' \
+     -d '{"aksi": "setujui", "catatan": "ok"}'
+# -> "status": "selesai", "status_akhir": "dibayar"
+
+curl -N -X POST localhost:8000/klaim/stream -H 'content-type: application/json' \
+     -d '{"permintaan": "Proses klaim KLM-002"}'
+# -> event: node ... event: progres ... event: selesai
+```
+
+Hal yang sama tanpa menyalakan server, lewat `TestClient` (cara yang dipakai test):
+
+<!-- output: 19 | uv run python -c "from fastapi.testclient import TestClient; from api import app; c = TestClient(app); r = c.post('/klaim', json={'permintaan': 'Proses klaim KLM-001', 'thread_id': 'web-1'}).json(); print(r['status'], r['keputusan']); print(c.post('/klaim/web-1/lanjut', json={'aksi': 'setujui'}).json()['status_akhir'])" -->
+```text
+$ uv run python -c "from fastapi.testclient import TestClient; from api import app; c = TestClient(app); r = c.post('/klaim', json={'permintaan': 'Proses klaim KLM-001', 'thread_id': 'web-1'}).json(); print(r['status'], r['keputusan']); print(c.post('/klaim/web-1/lanjut', json={'aksi': 'setujui'}).json()['status_akhir'])"
+menunggu_persetujuan {'aksi': 'setujui_sebagian', 'alasan': 'sebagian item dipotong atau ditolak', 'total_disetujui': 1020000}
+dibayar
+```
+<!-- /output -->
+
+### 19.4 Kemas dengan Docker
+
+📄 **`Dockerfile`** (file baru)
+
+<!-- kode: Dockerfile | penuh -->
+```dockerfile
+# Image resmi uv: Python 3.13 + uv sudah terpasang.
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
+
+WORKDIR /app
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
+
+# 1. Dependency dulu (layer ini di-cache selama pyproject.toml dan uv.lock tidak berubah).
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+
+# 2. Baru kode dan data. Mengubah kode tidak memicu install ulang dependency.
+COPY app ./app
+COPY mcp_server ./mcp_server
+COPY data ./data
+COPY api.py ./
+
+# State (SQLite, ChromaDB, ledger) di folder yang dipasang sebagai volume.
+ENV PATH="/app/.venv/bin:$PATH" \
+    RUNTIME_DIR=/var/lib/klaim
+
+EXPOSE 8000
+CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+📄 **`.dockerignore`** (file baru): apa yang **tidak** ikut masuk image.
+
+<!-- kode: .dockerignore | penuh -->
+```text
+.venv
+.env
+runtime
+_kunci
+_arsip
+tests
+.git
+**/__pycache__
+```
+
+📄 **`docker-compose.yml`** (file baru)
+
+<!-- kode: docker-compose.yml | penuh -->
+```yaml
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env                 # LLM_MODE, LLM_API_KEY, LANGSMITH_*: dibaca saat container jalan, TIDAK masuk image
+    volumes:
+      - klaim-data:/var/lib/klaim  # checkpoint, index ChromaDB, ledger: bertahan walau container dibuat ulang
+
+volumes:
+  klaim-data:
+```
+
+```bash
+docker compose up --build          # build image lalu jalankan
+curl localhost:8000/health
+docker compose down                # hentikan (volume klaim-data tetap ada)
+```
+
+Hal yang perlu dipahami:
+- **Urutan `COPY`** menentukan cache. Dependency (berat: ChromaDB, scikit-learn) dipasang sebelum kode disalin, jadi mengubah satu baris di `app/` hanya membangun ulang layer terakhir.
+- **`.env` tidak masuk image** (ada di `.dockerignore`) dan disuntikkan saat container jalan lewat `env_file`. Image yang sama bisa dipakai di mana pun dengan konfigurasi berbeda.
+- **State di volume.** Tanpa volume, semua checkpoint hilang saat container dibuat ulang, dan `/lanjut` untuk klaim yang menunggu atasan akan gagal dengan 404.
+- MCP server ikut di image yang sama dan dijalankan sebagai proses anak lewat stdio. Kalau MCP server milik tim lain jalan sebagai layanan HTTP terpisah, image ini cukup berisi agent-nya saja.
+
+### 19.5 Cadangan: tanpa Docker di laptop
+
+Kalau Docker tidak bisa dipasang (misalnya laptop kantor terkunci), pakai **Google Cloud Shell**, yang sudah berisi Docker:
+
+1. Buka https://shell.cloud.google.com dan login dengan akun Google.
+2. `git clone <repo-mu>` lalu `cd` ke foldernya. Buat `.env` dari `.env.example`.
+3. `docker compose up --build`.
+4. Klik **Web Preview → Preview on port 8000**, lalu tambahkan `/docs` di URL-nya.
+
+Alternatif lokal: **Podman** (`podman compose up --build`) atau **Rancher Desktop**. Keduanya kompatibel dengan file yang sama.
+
+### 19.6 Eksperimen
+
+1. **State bertahan lintas restart.** Jalankan `POST /klaim` untuk KLM-001, hentikan server (`Ctrl+C`), nyalakan lagi, lalu `POST /klaim/<thread>/lanjut`. Masih bisa, karena state ada di SQLite.
+2. **Tanpa volume.** Hapus bagian `volumes` di `docker-compose.yml`, ulangi eksperimen 1 dengan `docker compose down && docker compose up`. Sekarang `/lanjut` mengembalikan 404. Kembalikan.
+3. **Ukuran image.** `docker images`: kenapa image-nya besar? (Petunjuk: ChromaDB dan dependensinya.) Dependency apa yang sebenarnya tidak dibutuhkan saat produksi?
+
+### 19.7 Cek
+
+```bash
+uv run pytest tests/test_langkah19.py
+```
 
 ---
 
@@ -5407,12 +5935,12 @@ superstep 2: muat_klaim
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-004-1", "kategori": "hotel", "diajukan": 900000, "disetujui": 750000, "status": "…
     log = ["periksa_item KLM-004-1: dipotong"]
-superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-004-2", "kategori": "transport", "diajukan": 280000, "disetujui": 280000, "status…
-    log = ["periksa_item KLM-004-2: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-04", "nama": "Dewi Lestari", "departemen": "Finance", "atasan": "Hadi (CFO)", …
     log = ["cek_karyawan: Dewi Lestari, sisa anggaran Rp5.000.000"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-004-2", "kategori": "transport", "diajukan": 280000, "disetujui": 280000, "status…
+    log = ["periksa_item KLM-004-2: ok"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_sebagian", "alasan": "sebagian item dipotong atau ditolak", "total_diajukan": 118…
     log = ["putuskan: setujui_sebagian, perlu_persetujuan=True"]
@@ -5431,6 +5959,8 @@ superstep 8: nilai_memo
     penilaian = {"skor": 8, "masalah": [], "lolos": true}
     log = ["nilai_memo: skor 8, lolos=True"]
 superstep 9: persetujuan ⏸ memanggil interrupt
+
+jejak: uv run python -m app.jejak demo-21
 
 ⏸  berhenti di persetujuan, menunggu jawaban manusia:
 {
@@ -5558,7 +6088,7 @@ Setelah lab ini, kode `ggf-qc-agent` seharusnya terasa familiar. Konsepnya sama,
 | `guardrails.py` | `guardrails.py` | prompt injection |
 | `pola.py` | (materi pola orkestrasi) | supervisor, handoff, planner |
 
-Yang ada di ggf-qc-agent tapi tidak di lab ini: API web (FastAPI, `api.py`), observability LangSmith (`observability.py`), dan UI. Silakan jadikan latihan lanjutan, misalnya membuat endpoint FastAPI yang memanggil `build_graph(buka_sqlite())`.
+Yang ada di ggf-qc-agent tapi tidak di lab ini: UI web. Silakan jadikan latihan lanjutan, misalnya halaman sederhana yang memanggil `POST /klaim/stream` dan menampilkan event-nya.
 
 ### Kalau buntu
 

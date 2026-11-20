@@ -18,6 +18,8 @@ dependencies = [
     "grandalf==0.8",
     "pytest==9.2.0",
     "mcp==2.3.0",
+    "fastapi==0.165.0",
+    "uvicorn==0.54.0",
 ]
 
 [dependency-groups]

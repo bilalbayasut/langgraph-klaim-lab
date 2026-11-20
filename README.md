@@ -33,6 +33,9 @@ Tidak ada perintah bantu khusus. Semuanya file Python biasa dan `pytest`:
 | `uv run evaluasi.py` | Evaluasi perilaku agent dengan dataset kasus (Langkah 9) |
 | `uv run python -m app.mcp_klien` | Daftar tool yang ditawarkan MCP server (Langkah 7) |
 | `uv run pytest tests/test_langkah05.py` | Test langkah 5 (`uv run pytest` = semua test) |
+| `uv run python -m app.jejak <thread>` | Tracer lokal: pohon node, LLM, dan tool beserta durasinya (Langkah 18) |
+| `uv run api.py` | API HTTP di http://127.0.0.1:8000/docs (Langkah 19) |
+| `docker compose up --build` | Jalankan API di Docker (Langkah 19) |
 | `uv run langgraph dev` | LangGraph Studio di browser |
 | F5 di VS Code | Debugger dengan breakpoint di node (`.vscode/launch.json`) |
 | `cd _kunci/langkah-05 && uv run app.py "..."` | Jalankan kunci jawaban langkah 5 |
