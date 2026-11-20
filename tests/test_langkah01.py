@@ -36,14 +36,13 @@ def test_langgraph_json(kode):
     assert cfg["graphs"]["klaim"] == "./app/graph.py:graph"
 
 
-def test_chat_terminal_bisa_menjalankan_graph():
-    """`uv run chat` (lab/chat.py) memakai graph-mu. Di sini input diberikan lewat pipe."""
+def test_app_py_menjalankan_graph(kode):
+    """`uv run app.py "..."` menjalankan graph-mu dan mencetak setiap superstep."""
     import os
     import subprocess
     import sys
 
-    from lab.kode import ROOT
-
-    r = subprocess.run([sys.executable, "-m", "lab.chat"], input="Proses klaim KLM-002\n/keluar\n", cwd=ROOT,
+    r = subprocess.run([sys.executable, "app.py", "Proses klaim KLM-002"], cwd=kode,
                        env=dict(os.environ), capture_output=True, text=True, timeout=120)
-    assert r.returncode == 0 and "superstep 1: router" in r.stdout and "🤖" in r.stdout, r.stdout + r.stderr
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "superstep 1: router" in r.stdout and '"KLM-002"' in r.stdout, r.stdout

@@ -1,15 +1,18 @@
 """Konfigurasi test.
 
-Default: test menguji kode KAMU di ./app
-KUNCI=5 uv run cek 5      -> menguji kunci jawaban langkah 5 (_kunci/langkah-05/app)
-KUNCI=akhir uv run cek    -> menguji kunci jawaban terakhir
+Test mengimpor `app` dari folder tempat pytest dijalankan:
+
+    uv run pytest tests/test_langkah05.py                       -> menguji kode KAMU di ./app
+    cd _kunci/langkah-05 && uv run pytest ../../tests/test_langkah05.py   -> menguji kunci jawaban langkah 5
 """
+
+import sys
+from pathlib import Path
 
 import pytest
 
-from lab.kode import kode_dir, pasang_sys_path
-
-KODE = pasang_sys_path()
+KODE = Path.cwd()                      # folder yang berisi app/ (dan app.py, langgraph.json)
+sys.path.insert(0, str(KODE))
 
 
 @pytest.fixture(autouse=True)
@@ -32,8 +35,8 @@ def env_latihan(monkeypatch, tmp_path):
 
 
 @pytest.fixture
-def kode() -> object:
-    return kode_dir()
+def kode() -> Path:
+    return KODE
 
 
 def cfg(thread: str) -> dict:

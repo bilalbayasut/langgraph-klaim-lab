@@ -6,9 +6,12 @@ LAB.md adalah satu-satunya sumber kode. Setiap blok kode yang didahului komentar
     <!-- hapus: app/nodes.py | nama_fungsi -->
 diterapkan berurutan. Hasil setiap langkah disimpan di _kunci/langkah-NN/.
 
-  uv run python -m lab.kunci              bangun _kunci/
-  uv run python -m lab.kunci --uji        + uji: kunci langkah N harus lolos test langkah 1..N
-  uv run python -m lab.kunci --output     + isi blok <!-- output: N | perintah --> di LAB.md
+  uv run scripts/bangun_kunci.py              bangun _kunci/
+  uv run scripts/bangun_kunci.py --uji        + uji: kunci langkah N harus lolos test langkah 1..N
+  uv run scripts/bangun_kunci.py --output     + isi blok <!-- output: N | perintah --> di LAB.md
+
+Perintah di blok output dijalankan dari folder _kunci/langkah-NN/, jadi `uv run app.py ...`
+memakai app/ kunci langkah itu.
 """
 
 from __future__ import annotations
@@ -179,9 +182,17 @@ def tambah(lama: str, baru: str) -> str:
 
     for (a, b), isi in sorted(ganti, key=lambda x: -x[0][0]):
         lines[a:b] = isi
+    # Definisi baru masuk di akhir file, tapi SEBELUM blok `if __name__ == "__main__":` kalau ada.
+    ekor: list[str] = []
+    if tambahan and "__main__" in posisi_lama:
+        sekarang = ast.parse("\n".join(lines))
+        awal_main = next(_span(n, lines)[0] for n in sekarang.body if _nama(n) == "__main__")
+        lines, ekor = lines[:awal_main], lines[awal_main:]
     teks = "\n".join(lines).rstrip()
     for seg in tambahan:
         teks += ("\n\n\n" if teks else "") + "\n".join(seg)
+    if ekor:
+        teks += "\n\n\n" + "\n".join(ekor).strip("\n")
     teks += "\n"
     impor = [n for n in tb.body if _is_import(n)]
     if impor:
@@ -233,9 +244,10 @@ def bangun() -> list[int]:
             f.write_text(isi, encoding="utf-8")
     (KUNCI / "README.md").write_text(
         "# Kunci jawaban per langkah\n\n"
-        "Folder ini DIBANGKITKAN dari blok kode di LAB.md (`uv run python -m lab.kunci`). Jangan diedit manual.\n\n"
-        "- `langkah-NN/app/` = isi app/ setelah Langkah NN selesai.\n"
-        "- Jalankan kunci: `KUNCI=5 uv run lihat \"Proses klaim KLM-001\"`, `KUNCI=5 uv run cek 5`.\n"
+        "Folder ini DIBANGKITKAN dari blok kode di LAB.md (`uv run scripts/bangun_kunci.py`). Jangan diedit manual.\n\n"
+        "- `langkah-NN/` = isi `app/`, `app.py`, dan `langgraph.json` setelah Langkah NN selesai.\n"
+        "- Jalankan kunci: `cd _kunci/langkah-05 && uv run app.py \"Proses klaim KLM-001\"`.\n"
+        "- Uji kunci: `cd _kunci/langkah-05 && uv run pytest ../../tests/test_langkah05.py`.\n"
         "- Bandingkan dengan kodemu: `diff -ru _kunci/langkah-05/app app`.\n",
         encoding="utf-8",
     )
@@ -253,10 +265,9 @@ def uji(langkah: list[int]) -> bool:
         tests = _test_untuk(n)
         if not tests:
             return n, True, "(tidak ada test)"
-        env = {**os.environ, "KUNCI": str(n)}
+        env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
         env.pop("LLM_API_KEY", None)
-        env["PYTHONDONTWRITEBYTECODE"] = "1"
-        r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-x", *tests], cwd=ROOT, env=env,
+        r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-x", *tests], cwd=KUNCI / f"langkah-{n:02d}", env=env,
                            capture_output=True, text=True, timeout=600)
         return n, r.returncode == 0, (r.stdout.strip().splitlines() or ["?"])[-1] if r.returncode == 0 else r.stdout[-3000:]
 
@@ -272,41 +283,40 @@ def uji(langkah: list[int]) -> bool:
 
 # ----------------------------------------------------------------------------- isi contoh output
 def _jalankan_perintah(n: int, perintah: str, runtime: str) -> str:
+    """Jalankan perintah contoh dari folder _kunci/langkah-NN/ dan kembalikan teks keluarannya.
+
+    Didukung: `uv run app.py ...`, `uv run python ...`, `uv run pytest ...`, awalan VAR=nilai,
+    `cd _kunci/langkah-NN` (diabaikan, karena perintah memang dijalankan di folder kunci),
+    dan akhiran `> /dev/null` (perintah dijalankan, keluarannya tidak ditampilkan).
+    """
+    folder = KUNCI / f"langkah-{n:02d}"
     keluaran = []
     for cmd in perintah.split(" && "):
-        stdin = None
-        if cmd.startswith("printf ") and " | " in cmd:
-            kiri, kanan = cmd.split(" | ", 1)
-            stdin = shlex.split(kiri)[1].encode().decode("unicode_escape").encode("latin-1").decode("utf-8")
-            token = shlex.split(kanan)
-        else:
-            token = shlex.split(cmd)
-        env = {**os.environ, "KUNCI": str(n), "RUNTIME_DIR": runtime, "LLM_MODE": "mock", "PYTHONIOENCODING": "utf-8",
+        if cmd.startswith("cd "):
+            continue
+        diam = cmd.endswith(" > /dev/null")          # jalankan, tapi jangan tampilkan keluarannya
+        token = shlex.split(cmd.removesuffix(" > /dev/null"))
+        env = {**os.environ, "RUNTIME_DIR": runtime, "LLM_MODE": "mock", "PYTHONIOENCODING": "utf-8",
                "PYTHONDONTWRITEBYTECODE": "1", "EMBEDDING": "hash", "MAX_REVISI": "2", "MOCK_DRAF_PERTAMA_KURANG": "1",
                "HR_GAGAL_N_KALI": "0", "CRASH_SETELAH_BAYAR": "0", "COLUMNS": "120"}
         env.pop("LLM_API_KEY", None)
         while token and re.match(r"^[A-Z_]+=", token[0]):
             k, v = token.pop(0).split("=", 1)
             env[k] = v
-        if token[:3] == ["uv", "run", "lihat"]:
-            argv = [sys.executable, "-m", "lab.lihat", *token[3:]]
-        elif token[:3] == ["uv", "run", "chat"]:
-            argv = [sys.executable, "-m", "lab.chat", *token[3:]]
-        elif token[:3] == ["uv", "run", "cek"]:
-            argv = [sys.executable, "-m", "lab.cek", *token[3:]]
-        elif token[:3] == ["uv", "run", "python"]:
-            argv = [sys.executable, *token[3:]]
-            env["PYTHONPATH"] = str(KUNCI / f"langkah-{n:02d}")
-        else:
+        if token[:2] != ["uv", "run"]:
             raise SystemExit(f"perintah output tidak dikenal: {cmd}")
-        cwd = KUNCI / f"langkah-{n:02d}" if argv[1:2] != ["-m"] or argv[2] not in ("lab.lihat", "lab.cek", "lab.chat") else ROOT
-        r = subprocess.run(argv, cwd=cwd, env=env, input=stdin, capture_output=True, text=True, timeout=300)
-        teks = (r.stdout + r.stderr).rstrip()
-        keluaran.append(f"$ {cmd}\n{teks}")
+        if token[2] == "python":
+            argv = [sys.executable, *token[3:]]
+        elif token[2] == "pytest":
+            argv = [sys.executable, "-m", "pytest", *[str(ROOT / a) if a.startswith("tests/") else a for a in token[3:]]]
+        else:                                       # uv run app.py ...
+            argv = [sys.executable, *token[2:]]
+        r = subprocess.run(argv, cwd=folder, env=env, capture_output=True, text=True, timeout=300)
+        teks = "" if diam else (r.stdout + r.stderr).rstrip()
+        keluaran.append(f"$ {cmd}" + (f"\n{teks}" if teks else ""))
     hasil = "\n\n".join(keluaran)
-    if "KUNCI=" not in perintah:
-        hasil = re.sub(r"_kunci/langkah-\d+/app \(kunci jawaban\)", "app/ (kode kamu)", hasil)
     hasil = re.sub(r"\bt-[0-9a-f]{6}\b", "t-a1b2c3", hasil)
+    hasil = re.sub(r"\d+ passed in [\d.]+s", lambda m: m.group(0).split(" in ")[0], hasil)
     hasil = hasil.replace(str(ROOT) + "/", "").replace(runtime, "runtime")
     return hasil
 

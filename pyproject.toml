@@ -24,21 +24,11 @@ dev = [
     "langgraph-cli[inmem]==0.4.43",
 ]
 
-# Perintah bantu lab (kode di folder lab/, bukan bagian yang kamu tulis):
-#   uv run chat                           -> chat interaktif di terminal: ketik permintaan, dapat jawaban
-#   uv run lihat "Proses klaim KLM-002"   -> jalankan graph app/ dan tampilkan tiap superstep
-#   uv run cek 3                          -> jalankan test langkah 1 sampai 3
-[project.scripts]
-chat = "lab.chat:main"
-lihat = "lab.lihat:main"
-cek = "lab.cek:main"
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.hatch.build.targets.wheel]
-packages = ["lab"]
+[tool.uv]
+# Proyek ini bukan library yang dipasang; cukup jalankan file-nya langsung:
+#   uv run app.py "Proses klaim KLM-002"
+#   uv run pytest tests/test_langkah01.py
+package = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

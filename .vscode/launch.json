@@ -4,20 +4,10 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "chat (terminal interaktif)",
+      "name": "app.py: jalankan graph",
       "type": "debugpy",
       "request": "launch",
-      "module": "lab.chat",
-      "cwd": "${workspaceFolder}",
-      "env": {"LLM_MODE": "mock"},
-      "justMyCode": true,
-      "console": "integratedTerminal"
-    },
-    {
-      "name": "lihat: jalankan graph",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "lab.lihat",
+      "program": "${workspaceFolder}/app.py",
       "args": ["${input:permintaan}"],
       "cwd": "${workspaceFolder}",
       "env": {"LLM_MODE": "mock"},
@@ -25,10 +15,10 @@
       "console": "integratedTerminal"
     },
     {
-      "name": "lihat: lanjutkan thread (resume)",
+      "name": "app.py: lanjutkan thread (resume)",
       "type": "debugpy",
       "request": "launch",
-      "module": "lab.lihat",
+      "program": "${workspaceFolder}/app.py",
       "args": ["--thread", "${input:thread}", "--lanjut", "${input:aksi}"],
       "cwd": "${workspaceFolder}",
       "env": {"LLM_MODE": "mock"},
@@ -36,11 +26,11 @@
       "console": "integratedTerminal"
     },
     {
-      "name": "cek: test sampai langkah N",
+      "name": "pytest: test langkah N",
       "type": "debugpy",
       "request": "launch",
-      "module": "lab.cek",
-      "args": ["${input:langkah}", "-x"],
+      "module": "pytest",
+      "args": ["tests/test_langkah${input:langkah}.py", "-x"],
       "cwd": "${workspaceFolder}",
       "justMyCode": true,
       "console": "integratedTerminal"
@@ -50,6 +40,6 @@
     {"id": "permintaan", "type": "promptString", "description": "Permintaan", "default": "Proses klaim KLM-001"},
     {"id": "thread", "type": "promptString", "description": "thread_id", "default": "t1"},
     {"id": "aksi", "type": "pickString", "description": "Jawaban atasan", "options": ["setujui", "revisi", "tolak"], "default": "setujui"},
-    {"id": "langkah", "type": "promptString", "description": "Sampai langkah", "default": "1"}
+    {"id": "langkah", "type": "promptString", "description": "Nomor langkah (dua digit, misal 05)", "default": "01"}
   ]
 }

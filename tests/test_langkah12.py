@@ -76,14 +76,19 @@ def test_resume_tanpa_checkpointer_gagal():
         g.invoke(Command(resume="setujui"), cfg("g"))
 
 
-def test_chat_terminal_menjawab_interrupt():
-    """Di `uv run chat`, interrupt dijawab langsung sebagai atasan."""
+def test_app_py_berhenti_lalu_dilanjutkan_dari_proses_baru():
+    """`uv run app.py` berhenti di interrupt; `--lanjut setujui` dari proses lain melanjutkannya."""
     import os
     import subprocess
     import sys
 
-    from lab.kode import ROOT
+    from conftest import KODE
 
-    r = subprocess.run([sys.executable, "-m", "lab.chat", "--diam"], input="Proses klaim KLM-001\nsetujui\n", cwd=ROOT,
-                       env=dict(os.environ), capture_output=True, text=True, timeout=120)
-    assert r.returncode == 0 and "PERSETUJUAN ATASAN" in r.stdout and "dibayar" in r.stdout, r.stdout + r.stderr
+    def app(*args):
+        return subprocess.run([sys.executable, "app.py", *args], cwd=KODE, env=dict(os.environ),
+                              capture_output=True, text=True, timeout=120)
+
+    r = app("Proses klaim KLM-001", "--thread", "hitl-12")
+    assert r.returncode == 0 and "berhenti di persetujuan" in r.stdout, r.stdout + r.stderr
+    r = app("--thread", "hitl-12", "--lanjut", "setujui")
+    assert r.returncode == 0 and '"dibayar"' in r.stdout, r.stdout + r.stderr

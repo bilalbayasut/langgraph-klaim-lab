@@ -16,26 +16,24 @@ Domainnya jauh lebih sederhana daripada `ggf-qc-agent`, tapi keluasan materi Lan
 cd ~/Learning/langgraph-klaim-lab
 uv sync
 cp -n .env.example .env                       # LLM_MODE=mock: tanpa API key
-KUNCI=akhir uv run cek                        # semua kunci jawaban lolos = environment sehat
-KUNCI=akhir uv run chat                       # coba sistem jadinya: ketik "Proses klaim KLM-001"
-mkdir -p app && touch app/__init__.py         # lalu kerjakan Langkah 1
+mkdir -p app && touch app/__init__.py         # lalu kerjakan Langkah 1 (kamu menulis app/ dan app.py)
 ```
 
-## Alat bantu
+## Cara menjalankan
+
+Tidak ada perintah bantu khusus. Semuanya file Python biasa dan `pytest`:
 
 | Perintah | Kegunaan |
 |---|---|
-| `uv run chat` | **Chat di terminal**: ketik permintaan, dapat jawaban; interrupt dijawab langsung sebagai atasan; kode `app/` dimuat ulang otomatis |
-| `uv run lihat "Proses klaim KLM-002"` | Jalankan graph di `app/` dan tampilkan **setiap superstep**: node yang jalan, apa yang ditulis ke state, node berikutnya |
-| `uv run lihat ... --ringkas` / `--lengkap` | Satu baris per superstep / isi state lengkap |
-| `uv run lihat --thread t1 --lanjut setujui` | Jawab interrupt (human-in-the-loop) dari proses baru |
-| `uv run lihat --thread t1 --riwayat` / `--dari <id>` | Daftar checkpoint / time travel (replay, fork) |
-| `uv run lihat ... --mode updates` | Stream mentah (`updates`, `values`, `custom`, `messages`, `debug`) |
-| `uv run lihat --gambar` | Gambar graph (ASCII + Mermaid) |
-| `uv run cek 5` | Test langkah 1 sampai 5 (`--hanya` untuk langkah 5 saja) |
+| `uv run app.py "Proses klaim KLM-002"` | Jalankan graph dan tampilkan **setiap superstep**: node yang jalan dan apa yang ditulis ke state. `app.py` kamu tulis sendiri di Langkah 1 |
+| `uv run app.py --gambar` | Gambar graph (ASCII) |
+| `uv run app.py "..." --thread t1` | Pakai thread tertentu (Langkah 11) |
+| `uv run app.py --thread t1 --riwayat` / `--dari <id>` / `--status` | Daftar checkpoint / time travel / state terakhir (Langkah 11) |
+| `uv run app.py --thread t1 --lanjut setujui` | Jawab interrupt (human-in-the-loop, Langkah 12) |
+| `uv run pytest tests/test_langkah05.py` | Test langkah 5 (`uv run pytest` = semua test) |
 | `uv run langgraph dev` | LangGraph Studio di browser |
 | F5 di VS Code | Debugger dengan breakpoint di node (`.vscode/launch.json`) |
-| `KUNCI=5 uv run lihat ...` / `KUNCI=5 uv run cek 5` | Jalankan / uji kunci jawaban langkah 5 |
+| `cd _kunci/langkah-05 && uv run app.py "..."` | Jalankan kunci jawaban langkah 5 |
 
 ## Isi folder
 
@@ -43,14 +41,15 @@ mkdir -p app && touch app/__init__.py         # lalu kerjakan Langkah 1
 langgraph-klaim-lab/
 ├── LAB.md               # panduan lab langkah demi langkah  ← mulai di sini
 ├── app/                 # KAMU yang menulis isinya
+├── app.py               # KAMU yang menulis: menjalankan graph dari terminal
 ├── tests/               # test_langkah01.py ... test_langkah17.py
-├── lab/                 # alat bantu: chat.py, lihat.py, cek.py, kunci.py (tidak perlu ditulis)
+├── scripts/             # bangun_kunci.py: alat pengelola lab (membangun _kunci/ dari LAB.md)
 ├── data/
 │   ├── klaim.json       # 5 klaim latihan (KLM-001 ... KLM-005)
 │   ├── karyawan.json    # profil + sisa anggaran ("API HR")
 │   ├── kebijakan.json   # aturan yang dipakai kode
 │   └── kebijakan/*.md   # aturan versi teks (untuk RAG ChromaDB)
-├── _kunci/langkah-NN/   # kunci jawaban per langkah (dibangkitkan dari LAB.md)
+├── _kunci/langkah-NN/   # kunci jawaban per langkah: app/, app.py, langgraph.json (dibangkitkan dari LAB.md)
 ├── _arsip/              # versi lama lab (sebelum dirombak) + kode app/ lamamu
 ├── .env.example         # konfigurasi; default LLM_MODE=mock
 └── pyproject.toml, uv.lock
@@ -61,7 +60,7 @@ langgraph-klaim-lab/
 Semua kode kunci jawaban berasal dari blok kode di LAB.md (komentar `<!-- kode: ... -->`). Setelah mengubah LAB.md:
 
 ```bash
-uv run python -m lab.kunci --uji --output   # bangun ulang _kunci/, uji langkah N dengan test 1..N, isi contoh output
+uv run scripts/bangun_kunci.py --uji --output   # bangun ulang _kunci/, uji langkah N dengan test 1..N, isi contoh output
 ```
 
 Semua data di `data/` sintetis.
