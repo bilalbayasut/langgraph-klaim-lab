@@ -8,7 +8,7 @@ Keputusan yang sudah diambil:
 - Tracing: **LangSmith** sebagai utama + **tracer lokal (JSONL)** yang tetap jalan tanpa internet.
 - Dikerjakan **bertahap per hari**. Setiap tahap: kode di LAB.md, test, kunci jawaban, contoh output terverifikasi.
 
-Status: **Tahap A selesai** (susun ulang per hari; langkah baru masih placeholder). Tahap B menunggu base URL dan nama model gateway.
+Status: **Tahap A dan B selesai.** Hari 1 lengkap (function calling, MCP, retrieval sebagai tool, evaluasi). Berikutnya Tahap C (tracing, FastAPI + Docker).
 
 ---
 
@@ -94,7 +94,7 @@ Langkah 17 lama (LLM sungguhan) dilebur ke Langkah 0 dan 5, karena pelatihan mem
 
 ## 3. Perubahan teknis
 
-- **Dependency baru:** `langchain-mcp-adapters==0.3.1`, `fastapi==0.165.0`, `mcp` dan `uvicorn` (sudah terpasang sebagai dependency tidak langsung, akan dikunci eksplisit). Sudah dicek: semuanya cocok dengan versi LangGraph/LangChain yang dikunci.
+- **Dependency baru:** `mcp==2.3.0` (dikunci eksplisit), `fastapi` (Tahap C). **`langchain-mcp-adapters` tidak dipakai:** versi terbarunya mensyaratkan `mcp<2`, sedangkan `langgraph-api` (server Studio) mensyaratkan `mcp>=2.3`. Sebagai gantinya ada adapter kecil `app/mcp_klien.py` (SDK `mcp` resmi).
 - **Konfigurasi LLM:** default `.env.example` diganti ke gateway rubythalib.ai + DeepSeek V4.1 Flash (**butuh base URL dan nama model persis dari Anda**).
 - **File baru di root:** `mcp_server/`, `eval/`, `api.py`, `Dockerfile`, `docker-compose.yml`, `.dockerignore`.
 - **Test:** `test_langkah01.py` … `test_langkah25.py` dinomori ulang mengikuti susunan baru. Pembangun kunci tetap dipakai, jadi kunci langkah N diuji dengan test 1..N.

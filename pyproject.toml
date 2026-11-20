@@ -17,6 +17,7 @@ dependencies = [
     "scikit-learn==1.9.1",
     "grandalf==0.8",
     "pytest==9.2.0",
+    "mcp==2.3.0",
 ]
 
 [dependency-groups]

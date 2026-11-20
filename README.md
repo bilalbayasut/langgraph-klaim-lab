@@ -30,6 +30,8 @@ Tidak ada perintah bantu khusus. Semuanya file Python biasa dan `pytest`:
 | `uv run app.py "..." --thread t1` | Pakai thread tertentu (Langkah 13) |
 | `uv run app.py --thread t1 --riwayat` / `--dari <id>` / `--status` | Daftar checkpoint / time travel / state terakhir (Langkah 13) |
 | `uv run app.py --thread t1 --lanjut setujui` | Jawab interrupt (human-in-the-loop, Langkah 14) |
+| `uv run evaluasi.py` | Evaluasi perilaku agent dengan dataset kasus (Langkah 9) |
+| `uv run python -m app.mcp_klien` | Daftar tool yang ditawarkan MCP server (Langkah 7) |
 | `uv run pytest tests/test_langkah05.py` | Test langkah 5 (`uv run pytest` = semua test) |
 | `uv run langgraph dev` | LangGraph Studio di browser |
 | F5 di VS Code | Debugger dengan breakpoint di node (`.vscode/launch.json`) |
@@ -42,6 +44,8 @@ langgraph-klaim-lab/
 ├── LAB.md               # panduan lab langkah demi langkah  ← mulai di sini
 ├── app/                 # KAMU yang menulis isinya
 ├── app.py               # KAMU yang menulis: menjalankan graph dari terminal
+├── mcp_server/         # KAMU yang menulis: MCP server tiruan "aplikasi HR/Finance" (Langkah 7)
+├── evaluasi.py         # KAMU yang menulis: evaluasi agent + kasus_eval.jsonl (Langkah 9)
 ├── tests/               # test_langkahNN.py, satu file per langkah
 ├── scripts/             # bangun_kunci.py: alat pengelola lab (membangun _kunci/ dari LAB.md)
 ├── data/

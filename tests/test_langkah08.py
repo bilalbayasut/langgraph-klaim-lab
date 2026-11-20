@@ -68,3 +68,18 @@ def test_fungsi_onnx_tersedia():
 
 def test_hash_tetap_default():
     assert len(rag.embed(["batas hotel"])[0]) == rag.DIMENSI
+
+
+# ---- retrieval sebagai tool untuk agent asisten
+def test_cari_kebijakan_jadi_tool_asisten():
+    from app.asisten import alat, cari_kebijakan
+
+    assert "cari_kebijakan" in {t.name for t in alat()}
+    assert "[KEB-02]" in cari_kebijakan.invoke({"pertanyaan": "hotel tanpa struk"})
+
+
+def test_asisten_menggabungkan_mcp_dan_rag():
+    s = build_graph().invoke({"permintaan": "Berapa sisa anggaran Sari, dan bolehkah klaim hotel tanpa struk?"})
+    dipanggil = sorted(tc["name"] for m in s["messages"] for tc in getattr(m, "tool_calls", []))
+    assert dipanggil == ["cari_kebijakan", "profil_karyawan"]
+    assert "Rp3.000.000" in s["jawaban"] and "KEB-02" in s["jawaban"]

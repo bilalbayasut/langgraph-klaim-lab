@@ -46,10 +46,10 @@ Lab ini dibagi mengikuti tiga hari pelatihan. Satu sistem yang sama berkembang d
 | [3](#langkah-3--aturan-bisnis-dan-reducer) | Memeriksa item dan memutuskan | **Reducer**, keputusan oleh kode |
 | [4](#langkah-4--percabangan-conditional-edge) | Router 3 arah | **Routing** dengan conditional edge |
 | [5](#langkah-5--llm-mode-mock-dan-structured-output) | Router dengan LLM | Mock vs live, **structured output** (Pydantic) |
-| [6](#langkah-6--function-calling-agent-asisten) | Agent asisten *(menyusul)* | **Function calling**, `ToolNode`, loop ReAct |
-| [7](#langkah-7--mcp-menghubungkan-agent-ke-aplikasi-internal) | Aplikasi internal lewat MCP *(menyusul)* | **MCP** server & client |
-| [8](#langkah-8--rag-dengan-chromadb) | Tanya jawab kebijakan | **RAG**: chunking, embedding, **ChromaDB** |
-| [9](#langkah-9--evaluasi-dasar-dengan-test-case) | Evaluasi agent *(menyusul)* | Dataset test case, skor |
+| [6](#langkah-6--function-calling-agent-asisten) | Agent asisten | **Function calling**, `ToolNode`, loop ReAct |
+| [7](#langkah-7--mcp-menghubungkan-agent-ke-aplikasi-internal) | Aplikasi internal lewat MCP | **MCP** server & client |
+| [8](#langkah-8--rag-dengan-chromadb) | Tanya jawab kebijakan | **RAG**: chunking, embedding, **ChromaDB**, retrieval sebagai tool |
+| [9](#langkah-9--evaluasi-dasar-dengan-test-case) | Evaluasi agent | Dataset test case, skor |
 | **Hari 2** | **Multi-agent, state, deploy** | |
 | [10](#langkah-10--paralel-dua-cabang-dan-join) | Cek anggaran paralel | **Fan-out**, **join** |
 | [11](#langkah-11--map-reduce-dengan-send) | Satu pemeriksa per item | **Orchestrator-workers** dengan `Send` |
@@ -128,14 +128,14 @@ superstep 2: muat_klaim
     peringatan = []
     log = ["muat_klaim: 2 item"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
-    log = ["periksa_item KLM-002-1: ok"]
-superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
     log = ["periksa_item KLM-002-2: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
     log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
+    log = ["periksa_item KLM-002-1: ok"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_penuh", "alasan": "semua item sesuai aturan", "total_diajukan": 180000, "total_di…
     log = ["putuskan: setujui_penuh, perlu_persetujuan=False"]
@@ -158,7 +158,7 @@ superstep 8: nilai_memo
 superstep 9: bayar
     pembayaran = {"kunci": "KLM-002:180000", "claim_id": "KLM-002", "jumlah": 180000, "ref": "TRF-0001", "duplikat":…
     status_akhir = "dibayar"
-… (24 baris berikutnya dipotong)
+… (25 baris berikutnya dipotong)
 ```
 <!-- /output -->
 
@@ -217,9 +217,14 @@ app/
 ├── llm.py          # pembungkus LLM (mock / live)
 ├── guardrails.py   # deteksi prompt injection
 ├── rag.py          # RAG ChromaDB
+├── asisten.py      # agent dengan function calling
+├── mcp_klien.py    # client MCP: tool MCP -> tool LangChain
 ├── pantau.py       # contoh konsumen streaming
 └── pola.py         # pola orkestrasi lain
+mcp_server/
+└── hr_finance.py   # MCP server tiruan "aplikasi HR/Finance"
 app.py              # menjalankan graph dari terminal (uv run app.py "...")
+evaluasi.py         # evaluasi agent dengan test case (kasus_eval.jsonl)
 langgraph.json      # konfigurasi LangGraph Studio
 ```
 
@@ -1322,13 +1327,674 @@ uv run pytest tests/test_langkah05.py
 
 ## Langkah 6 — Function calling: agent asisten
 
-> **Menyusul.** LLM memilih dan memanggil tool sendiri (`bind_tools`, `ToolNode`, `tools_condition`). Ditulis di Tahap B.
+**Tujuan:** pengguna bisa bertanya hal yang jawabannya ada di **data**, misalnya *"Berapa sisa anggaran Sari?"* atau *"Apa detail KLM-003?"*. Pertanyaan ini dijawab oleh **agent**: LLM yang **memilih sendiri** tool mana yang dipanggil, dengan argumen apa, lalu menyusun jawaban dari hasilnya.
+
+**Konsep baru:** workflow vs agent, **function calling** (`bind_tools`, `tool_calls`), `@tool`, `ToolNode`, `tools_condition`, loop agent (ReAct), state `messages` dengan reducer `add_messages`.
+
+```mermaid
+flowchart LR
+  START --> router
+  router -.-> muat_klaim --> periksa_semua --> putuskan --> END
+  router -.-> jawab_kebijakan --> END
+  router -.-> klarifikasi --> END
+  router -.-> asisten
+  asisten -.ada tool_calls.-> alat --> asisten
+  asisten -.selesai.-> END
+```
+
+### 6.1 Konsep: workflow vs agent
+
+Sampai Langkah 5, graph kita adalah **workflow**: urutan langkahnya ditulis di kode. LLM hanya membantu di satu titik (router), dan jalurnya tetap.
+
+**Agent** berbeda: LLM menentukan langkah berikutnya sendiri. Polanya sebuah loop:
+
+```
+pertanyaan -> LLM -> "panggil profil_karyawan(nama='Sari')"     (tool_calls)
+           -> kode menjalankan tool -> hasilnya dikirim balik ke LLM   (ToolMessage)
+           -> LLM -> "panggil tool lain" ... atau "ini jawabannya"      (tanpa tool_calls -> selesai)
+```
+
+Inilah **function calling**: LLM tidak menjalankan apa pun. Ia hanya **meminta** sebuah fungsi dipanggil dengan argumen tertentu, dalam format terstruktur. Kode kitalah yang menjalankannya.
+
+**Kapan agent TIDAK diperlukan?** Kalau langkahnya sudah pasti dan harus bisa diaudit, misalnya menghitung uang yang dibayar, pakai workflow. Jalur klaim kita tetap workflow. Agent cocok untuk pertanyaan yang bentuknya bebas dan butuh kombinasi data yang tidak bisa ditebak dari awal.
+
+Bagian LangGraph yang dipakai:
+- `@tool` mengubah fungsi Python biasa menjadi tool. **Docstring dan type hint-nya dikirim ke LLM** sebagai deskripsi tool, jadi tulis dengan jelas.
+- `model.bind_tools(tools)` memberi tahu LLM tool apa saja yang tersedia.
+- `ToolNode(tools)` adalah node siap pakai yang menjalankan semua `tool_calls` di pesan terakhir, lalu menulis hasilnya sebagai `ToolMessage`.
+- `tools_condition` adalah fungsi rute siap pakai: kalau pesan terakhir punya `tool_calls`, kembalikan `"tools"`; kalau tidak, `END`.
+- Field `messages` memakai reducer `add_messages`: pesan baru **ditambahkan** ke percakapan, bukan menimpa.
+
+Di mode mock, LLM diganti fungsi `_agen_mock` yang meniru perilaku LLM dengan aturan sederhana: cari nama karyawan dan nomor klaim di pertanyaan, minta tool yang sesuai, lalu rangkai hasilnya menjadi jawaban. Bentuk pesannya (`AIMessage` dengan `tool_calls`) sama persis dengan yang dihasilkan LLM sungguhan, jadi graph-nya tidak tahu bedanya.
+
+### 6.2 Tulis kode
+
+➕ **`app/tools.py`**: tambahkan
+
+<!-- kode: app/tools.py | tambah -->
+```python
+def daftar_karyawan() -> list[dict]:
+    return [{"karyawan_id": kid, **p} for kid, p in _baca_json("karyawan.json").items()]
+
+
+def cari_karyawan(teks: str) -> dict | None:
+    """Cari karyawan berdasarkan ID (EMP-02) atau nama (boleh sebagian, tidak peka huruf besar)."""
+    teks = teks.strip().lower()
+    for p in daftar_karyawan():
+        if teks == p["karyawan_id"].lower() or teks in p["nama"].lower():
+            return p
+    return None
+```
+
+➕ **`app/llm.py`**: tambahkan
+
+<!-- kode: app/llm.py | tambah -->
+```python
+from langchain_core.messages import AIMessage, BaseMessage
+
+
+def dengan_tools(tools: list, pesan: list[BaseMessage], fallback: Callable[[], AIMessage]) -> AIMessage:
+    """Function calling: LLM boleh membalas dengan tool_calls. Mode mock: kembalikan fallback()."""
+    if not is_live():
+        return fallback()
+    return chat_model().bind_tools(tools).invoke(pesan)
+```
+
+📄 **`app/asisten.py`** (file baru)
+
+<!-- kode: app/asisten.py | penuh -->
+```python
+"""Agent asisten: LLM memilih dan memanggil tool sendiri (function calling).
+
+Jalur klaim adalah WORKFLOW (urutan langkah ditentukan kode). Asisten adalah AGENT:
+LLM yang memutuskan tool mana yang dipanggil, dengan argumen apa, dan kapan berhenti.
+"""
+
+from __future__ import annotations
+
+import re
+
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.tools import tool
+from langgraph.graph import END
+from langgraph.prebuilt import ToolNode, tools_condition
+
+from app import llm, tools
+from app.state import KlaimState
+
+SYSTEM_ASISTEN = (
+    "Kamu asisten HR/Finance untuk urusan klaim reimbursement. Jawab dalam bahasa Indonesia, singkat. "
+    "Data karyawan, anggaran, dan klaim HANYA boleh diambil lewat tool. Jangan mengarang angka. "
+    "Kalau data tidak ditemukan, katakan terus terang."
+)
+
+
+# ======================================================================= tool
+# Docstring + type hint di bawah DIKIRIM KE LLM sebagai deskripsi tool.
+@tool
+def profil_karyawan(nama: str) -> str:
+    """Profil karyawan: departemen, atasan, dan sisa anggaran reimbursement tahun ini.
+    `nama` boleh nama depan saja, misalnya 'Sari'."""
+    p = tools.cari_karyawan(nama)
+    if p is None:
+        return f"Karyawan '{nama}' tidak ditemukan."
+    return (f"{p['nama']} ({p['karyawan_id']}), departemen {p['departemen']}, atasan {p['atasan']}, "
+            f"sisa anggaran {tools.format_rupiah(p['sisa_anggaran'])}.")
+
+
+@tool
+def detail_klaim(claim_id: str) -> str:
+    """Detail klaim reimbursement: judul, tanggal, pengaju, daftar item, dan total diajukan.
+    `claim_id` berformat KLM-XXX, misalnya 'KLM-003'."""
+    k = tools.ambil_klaim(claim_id.strip().upper())
+    if k is None:
+        return f"Klaim {claim_id} tidak ditemukan."
+    pengaju = tools.cari_karyawan(k["karyawan_id"])
+    item = ", ".join(f"{it['kategori']} {tools.format_rupiah(it['jumlah'])}" for it in k["item"])
+    total = tools.format_rupiah(sum(it["jumlah"] for it in k["item"]))
+    return f"{k['claim_id']} '{k['judul']}' ({k['tanggal']}) oleh {pengaju['nama']}: {item}. Total diajukan {total}."
+
+
+def alat() -> list:
+    """Tool yang boleh dipakai asisten."""
+    return [profil_karyawan, detail_klaim]
+
+
+# ======================================================================= pengganti LLM di mode mock
+KATA_ATURAN = ("aturan", "batas", "boleh", "struk", "kebijakan", "maksimal")
+
+
+def _agen_mock(pesan: list, nama_alat: set[str]) -> AIMessage:
+    """Meniru LLM dengan aturan sederhana, tapi bentuk pesannya SAMA dengan LLM sungguhan."""
+    if isinstance(pesan[-1], ToolMessage):
+        # Putaran ke-2: hasil tool sudah ada -> rangkai jadi jawaban (tanpa tool_calls = selesai).
+        mulai = max(i for i, m in enumerate(pesan) if isinstance(m, HumanMessage))
+        hasil = [m.content for m in pesan[mulai:] if isinstance(m, ToolMessage)]
+        return AIMessage(content="\n".join(hasil))
+
+    # Putaran ke-1: pilih tool dari isi pertanyaan.
+    pertanyaan = pesan[-1].content
+    rencana = [("detail_klaim", {"claim_id": cid}) for cid in re.findall(r"KLM-\d{3}", pertanyaan.upper())]
+    for p in tools.daftar_karyawan():
+        depan = p["nama"].split()[0]
+        if depan.lower() in pertanyaan.lower():
+            rencana.append(("profil_karyawan", {"nama": depan}))
+    if any(k in pertanyaan.lower() for k in KATA_ATURAN):
+        rencana.append(("cari_kebijakan", {"pertanyaan": pertanyaan}))      # tool ini ada mulai Langkah 8
+    rencana = [(nama, arg) for nama, arg in rencana if nama in nama_alat]
+    if not rencana:
+        return AIMessage(content="Maaf, saya tidak menemukan nama karyawan atau nomor klaim di pertanyaanmu.")
+    return AIMessage(content="", tool_calls=[
+        {"name": nama, "args": arg, "id": f"call_{len(pesan)}_{i}"} for i, (nama, arg) in enumerate(rencana)
+    ])
+
+
+# ======================================================================= node + rakitan
+def asisten(state: KlaimState) -> dict:
+    """Satu putaran agent: LLM melihat percakapan, lalu MENJAWAB atau MEMINTA tool dipanggil."""
+    pesan = list(state.get("messages", []))
+    baru = []
+    if not pesan or (isinstance(pesan[-1], AIMessage) and not pesan[-1].tool_calls):
+        baru.append(HumanMessage(content=state["permintaan"]))       # giliran baru dari pengguna
+    percakapan = pesan + baru
+    daftar = alat()
+    ai = llm.dengan_tools(daftar, [SystemMessage(content=SYSTEM_ASISTEN), *percakapan],
+                          fallback=lambda: _agen_mock(percakapan, {t.name for t in daftar}))
+    update = {"messages": [*baru, ai]}
+    if ai.tool_calls:
+        update["log"] = ["asisten: minta tool " + ", ".join(tc["name"] for tc in ai.tool_calls)]
+    else:
+        update |= {"jawaban": ai.content, "status_akhir": "dijawab", "log": ["asisten: menjawab"]}
+    return update
+
+
+def pasang_asisten(g) -> None:
+    """Tambahkan agent ke graph: asisten -> alat -> asisten ... sampai asisten berhenti meminta tool."""
+    g.add_node("asisten", asisten)
+    g.add_node("alat", ToolNode(alat()))                        # menjalankan semua tool_calls di pesan terakhir
+    # tools_condition: pesan terakhir punya tool_calls? -> "tools" (kita petakan ke node "alat"), kalau tidak -> END
+    g.add_conditional_edges("asisten", tools_condition, {"tools": "alat", END: END})
+    g.add_edge("alat", "asisten")                               # hasil tool kembali ke LLM
+```
+
+📄 **`app/state.py`** (tulis ulang lengkap). Tambah rute `asisten` dan field `messages`.
+
+<!-- kode: app/state.py | penuh -->
+```python
+"""State graph (TypedDict + reducer) dan skema output LLM (Pydantic)."""
+
+from __future__ import annotations
+
+import operator
+from typing import Annotated, Literal, TypedDict
+
+from langchain_core.messages import AnyMessage
+from langgraph.graph.message import add_messages
+from pydantic import BaseModel, Field
+
+Rute = Literal["klaim", "kebijakan", "asisten", "klarifikasi"]
+
+
+class KlaimState(TypedDict, total=False):
+    # input & routing
+    permintaan: str
+    rute: Rute
+    claim_id: str | None
+    # agent asisten: percakapan dengan LLM (pesan pengguna, panggilan tool, hasil tool)
+    messages: Annotated[list[AnyMessage], add_messages]
+    # data & keputusan
+    klaim: dict | None
+    hasil_item: list[dict]
+    keputusan: dict
+    # hasil akhir
+    jawaban: str
+    status_akhir: str
+    # jejak
+    log: Annotated[list[str], operator.add]
+
+
+# ---------------------------------------------------------------- skema output LLM
+class RuteDecision(BaseModel):
+    """Field description ikut dikirim ke LLM: tulis sejelas mungkin."""
+
+    rute: Rute = Field(description="klaim (proses klaim), kebijakan (tanya aturan), asisten (tanya data karyawan atau detail klaim), atau klarifikasi")
+    claim_id: str | None = Field(default=None, description="Nomor klaim format KLM-XXX bila disebut")
+    alasan: str = Field(description="Alasan singkat")
+```
+
+➕ **`app/nodes.py`**: tambahkan. `SYSTEM_ROUTER`, `rute_aturan`, dan `rute_setelah_router` **diganti**: router mengenal rute `asisten`.
+
+<!-- kode: app/nodes.py | tambah -->
+```python
+KATA_ASISTEN = ("anggaran", "atasan", "departemen", "karyawan", "status", "detail")
+
+SYSTEM_ROUTER = (
+    "Kamu router sistem klaim reimbursement. Tentukan rute permintaan:\n"
+    "- 'klaim': pengguna minta MEMPROSES klaim tertentu (nomor KLM-XXX, tiga digit).\n"
+    "- 'kebijakan': pengguna bertanya aturan klaim (batas biaya, struk, persetujuan).\n"
+    "- 'asisten': pengguna bertanya DATA: sisa anggaran, atasan, atau detail/status sebuah klaim. "
+    "Termasuk pertanyaan CAMPURAN data + aturan: asisten bisa memakai beberapa tool sekaligus.\n"
+    "- 'klarifikasi': permintaan tidak jelas atau di luar topik.\n"
+    "Isi claim_id hanya bila nomor klaim benar-benar disebut."
+)
+
+
+def rute_aturan(permintaan: str) -> RuteDecision:
+    """Router tanpa LLM. Dipakai sebagai fallback di mode mock."""
+    teks = permintaan.lower()
+    cocok = re.search(r"KLM-\d{3}", permintaan.upper())
+    if any(k in teks for k in KATA_ASISTEN):
+        return RuteDecision(rute="asisten", claim_id=cocok.group(0) if cocok else None,
+                            alasan="pertanyaan data karyawan atau klaim")
+    if cocok:
+        return RuteDecision(rute="klaim", claim_id=cocok.group(0), alasan="menyebut nomor klaim")
+    if any(k in teks for k in KATA_KEBIJAKAN):
+        return RuteDecision(rute="kebijakan", alasan="pertanyaan tentang aturan")
+    return RuteDecision(rute="klarifikasi", alasan="tidak ada nomor klaim maupun pertanyaan aturan")
+
+
+def rute_setelah_router(state: KlaimState) -> str:
+    """Fungsi RUTE (bukan node): baca state, kembalikan NAMA node berikutnya."""
+    return {"klaim": "muat_klaim", "kebijakan": "jawab_kebijakan", "asisten": "asisten",
+            "klarifikasi": "klarifikasi"}[state["rute"]]
+```
+
+📄 **`app/graph.py`** (tulis ulang lengkap). Router punya tujuan keempat, dan `pasang_asisten` menambahkan loop agent.
+
+<!-- kode: app/graph.py | penuh -->
+```python
+"""Merakit node menjadi graph."""
+
+from __future__ import annotations
+
+from langgraph.graph import END, START, StateGraph
+
+from app.asisten import pasang_asisten
+from app.nodes import (
+    jawab_kebijakan, klarifikasi, muat_klaim, periksa_semua, putuskan, router, rute_setelah_router,
+)
+from app.state import KlaimState
+
+
+def build_graph(checkpointer=None):
+    g = StateGraph(KlaimState)
+    g.add_node("router", router)
+    g.add_node("klarifikasi", klarifikasi)
+    g.add_node("jawab_kebijakan", jawab_kebijakan)
+    g.add_node("muat_klaim", muat_klaim)
+    g.add_node("periksa_semua", periksa_semua)
+    g.add_node("putuskan", putuskan)
+
+    g.add_edge(START, "router")
+    g.add_conditional_edges("router", rute_setelah_router, ["muat_klaim", "jawab_kebijakan", "asisten", "klarifikasi"])
+    g.add_edge("klarifikasi", END)
+    g.add_edge("jawab_kebijakan", END)
+    pasang_asisten(g)                     # agent asisten: asisten <-> alat
+
+    g.add_edge("muat_klaim", "periksa_semua")
+    g.add_edge("periksa_semua", "putuskan")
+    g.add_edge("putuskan", END)
+    return g.compile(checkpointer=checkpointer)
+
+
+graph = build_graph()
+```
+
+➕ **`app.py`**: tambahkan. `ringkas` **diganti**: isi `messages` ditampilkan satu pesan per baris, supaya percakapan agent mudah dibaca.
+
+<!-- kode: app.py | tambah -->
+```python
+from langchain_core.messages import BaseMessage
+
+
+def pesan_singkat(m: BaseMessage, maks: int = 160) -> str:
+    """HumanMessage / AIMessage / ToolMessage -> satu baris yang mudah dibaca."""
+    if getattr(m, "tool_calls", None):
+        teks = "AI minta tool: " + ", ".join(
+            f"{tc['name']}({json.dumps(tc['args'], ensure_ascii=False)})" for tc in m.tool_calls)
+    else:
+        label = {"human": "Human", "ai": "AI", "tool": f"Tool {getattr(m, 'name', '')}"}.get(m.type, m.type)
+        teks = f"{label}: {m.content}"
+    teks = teks.replace("\n", " ")
+    return teks if len(teks) <= maks else teks[: maks - 1] + "…"
+
+
+def ringkas(nilai, maks: int = 100) -> str:
+    """Nilai apa pun -> teks JSON satu baris, dipotong kalau terlalu panjang. Daftar pesan: satu per baris."""
+    if isinstance(nilai, list) and nilai and all(isinstance(m, BaseMessage) for m in nilai):
+        return "".join("\n        " + pesan_singkat(m) for m in nilai)
+    teks = json.dumps(nilai, ensure_ascii=False, default=str)
+    return teks if len(teks) <= maks else teks[: maks - 1] + "…"
+```
+
+### 6.3 Jalankan dan amati
+
+<!-- output: 6 | uv run app.py "Berapa sisa anggaran Sari dan siapa atasannya?" -->
+```text
+$ uv run app.py "Berapa sisa anggaran Sari dan siapa atasannya?"
+superstep 1: router
+    rute = "asisten"
+    claim_id = null
+    log = ["router: asisten (pertanyaan data karyawan atau klaim)"]
+superstep 2: asisten
+    messages = 
+        Human: Berapa sisa anggaran Sari dan siapa atasannya?
+        AI minta tool: profil_karyawan({"nama": "Sari"})
+    log = ["asisten: minta tool profil_karyawan"]
+superstep 3: alat
+    messages = 
+        Tool profil_karyawan: Sari Wulandari (EMP-02), departemen Marketing, atasan Tono (Marketing Lead), sisa anggaran Rp3.000.000.
+superstep 4: asisten
+    messages = 
+        AI: Sari Wulandari (EMP-02), departemen Marketing, atasan Tono (Marketing Lead), sisa anggaran Rp3.000.000.
+    jawaban = "Sari Wulandari (EMP-02), departemen Marketing, atasan Tono (Marketing Lead), sisa anggaran Rp3.000…
+    status_akhir = "dijawab"
+    log = ["asisten: menjawab"]
+```
+<!-- /output -->
+
+Ikuti percakapannya di field `messages`:
+- **superstep 2, `asisten`**: LLM belum menjawab. Ia menulis `AIMessage` berisi `tool_calls`: minta `profil_karyawan(nama="Sari")`.
+- **superstep 3, `alat`**: `ToolNode` menjalankan tool itu dan menulis hasilnya sebagai `ToolMessage`.
+- **superstep 4, `asisten`**: LLM melihat hasil tool, lalu menjawab tanpa `tool_calls`. `tools_condition` mengarah ke `END`.
+
+Satu pertanyaan bisa memicu **beberapa tool sekaligus**. `ToolNode` menjalankan semuanya dalam satu superstep:
+
+<!-- output: 6 | uv run app.py "Apa detail KLM-003, dan berapa sisa anggaran Budi?" -->
+```text
+$ uv run app.py "Apa detail KLM-003, dan berapa sisa anggaran Budi?"
+superstep 1: router
+    rute = "asisten"
+    claim_id = "KLM-003"
+    log = ["router: asisten (pertanyaan data karyawan atau klaim)"]
+superstep 2: asisten
+    messages = 
+        Human: Apa detail KLM-003, dan berapa sisa anggaran Budi?
+        AI minta tool: detail_klaim({"claim_id": "KLM-003"}), profil_karyawan({"nama": "Budi"})
+    log = ["asisten: minta tool detail_klaim, profil_karyawan"]
+superstep 3: alat
+    messages = 
+        Tool detail_klaim: KLM-003 'Perlengkapan kerja remote' (2026-11-07) oleh Budi Santoso: peralatan Rp2.100.000, peralatan Rp1.350.000, hiburan Rp250.000. Total d…
+        Tool profil_karyawan: Budi Santoso (EMP-03), departemen IT, atasan Maya (IT Manager), sisa anggaran Rp6.000.000.
+superstep 4: asisten
+    messages = 
+        AI: KLM-003 'Perlengkapan kerja remote' (2026-11-07) oleh Budi Santoso: peralatan Rp2.100.000, peralatan Rp1.350.000, hiburan Rp250.000. Total diajukan Rp3.700…
+    jawaban = "KLM-003 'Perlengkapan kerja remote' (2026-11-07) oleh Budi Santoso: peralatan Rp2.100.000, peralat…
+    status_akhir = "dijawab"
+    log = ["asisten: menjawab"]
+```
+<!-- /output -->
+
+### 6.4 Eksperimen
+
+1. **(Live)** `LLM_MODE=live uv run app.py "Berapa sisa anggaran Sari?"`. Bandingkan argumen yang dipilih LLM dengan versi mock. Lalu coba pertanyaan yang tidak bisa ditebak aturan mock, misalnya *"Siapa yang mengajukan klaim hotel di Bandung, dan berapa sisa anggarannya?"* LLM sungguhan bisa merangkai dua tool berturut-turut (tool kedua memakai hasil tool pertama). Itulah kelebihan agent dibanding aturan.
+2. **Deskripsi tool itu penting.** Hapus docstring `profil_karyawan` dan ganti dengan `"""Ambil data."""`. Jalankan eksperimen 1 lagi. LLM jadi ragu kapan harus memakai tool itu. Kembalikan.
+3. **Lihat apa yang dikirim ke LLM:** `uv run python -c "from app.asisten import profil_karyawan as t; print(t.name); print(t.description); print(t.args)"`.
+
+### 6.5 Cek
+
+```bash
+uv run pytest tests/test_langkah06.py
+```
 
 ---
 
 ## Langkah 7 — MCP: menghubungkan agent ke aplikasi internal
 
-> **Menyusul.** MCP server sintetis untuk data HR/Finance, dipakai agent lewat `langchain-mcp-adapters`. Ditulis di Tahap B.
+**Tujuan:** data karyawan dan klaim di perusahaan biasanya ada di **aplikasi lain** (HRIS, ERP, sistem keuangan) milik tim lain. Agent tidak boleh mengimpor kode aplikasi itu. Di langkah ini, tool `profil_karyawan` dan `detail_klaim` **dipindah ke MCP server terpisah**, dan agent memakainya lewat protokol MCP.
+
+**Konsep baru:** **MCP (Model Context Protocol)**, server dan client, transport stdio, `list_tools` / `call_tool`, mengubah tool MCP menjadi tool LangChain.
+
+```
+ agent (app/asisten.py)                        MCP server (mcp_server/hr_finance.py)
+ ┌────────────────────────┐   list_tools     ┌──────────────────────────────────┐
+ │ ToolNode               │ ───────────────► │ profil_karyawan(nama)            │
+ │   └ tool dari MCP      │   call_tool      │ detail_klaim(claim_id)           │
+ │                        │ ◄─────────────── │   -> baca data aplikasi HR/Finance│
+ └────────────────────────┘  JSON-RPC (stdio) └──────────────────────────────────┘
+```
+
+### 7.1 Konsep
+
+**MCP** adalah protokol standar supaya aplikasi apa pun bisa menawarkan **tool** (dan data) ke agent mana pun. Analoginya "USB-C untuk agent": tim HR cukup membuat satu MCP server, lalu agent LangGraph, Claude Desktop, IDE, atau agent lain bisa memakainya tanpa kode khusus.
+
+- **MCP server** mendaftarkan tool lengkap dengan nama, deskripsi, dan skema argumen (JSON Schema).
+- **MCP client** (di sisi agent) bertanya `list_tools` untuk mengetahui tool yang tersedia, lalu `call_tool(nama, argumen)` untuk menjalankannya.
+- **Transport:** `stdio` (server dijalankan sebagai proses anak, bicara lewat stdin/stdout. Cocok untuk lokal dan lab ini) atau **Streamable HTTP** (server jalan sendiri di jaringan. Cocok untuk aplikasi internal sungguhan).
+
+Bandingkan dengan Langkah 6: di sana tool adalah fungsi Python di proses yang sama. Sekarang tool tinggal di **proses lain**, ditulis oleh "tim lain", dan agent hanya tahu nama, deskripsi, serta skemanya. Dari sisi LLM tidak ada bedanya: ia tetap menerima daftar tool dan mengembalikan `tool_calls`.
+
+> **Catatan teknis.** Ekosistem LangChain punya paket `langchain-mcp-adapters`. Versi terbarunya belum mendukung SDK `mcp` 2.x yang dibutuhkan server LangGraph Studio, jadi di lab ini kita menulis adapter sendiri (sekitar 40 baris). Bonusnya, kamu melihat persis apa yang dikerjakan adapter: `list_tools`, lalu membungkus setiap tool supaya `call_tool` dipanggil saat agent memakainya.
+
+### 7.2 Tulis kode
+
+📄 **`mcp_server/hr_finance.py`** (file baru, di folder `mcp_server/` di folder utama, **bukan** di dalam `app/`). Ini "aplikasi milik tim lain", jadi kodenya sengaja **tidak** mengimpor apa pun dari `app/`.
+
+<!-- kode: mcp_server/hr_finance.py | penuh -->
+```python
+"""MCP server tiruan untuk aplikasi HR/Finance internal.
+
+Proses TERPISAH dari agent. Agent tidak mengimpor kode ini; ia hanya bicara lewat protokol MCP
+(JSON-RPC di atas stdin/stdout). Di perusahaan, server seperti ini biasanya dibuat oleh tim pemilik data.
+
+    uv run mcp_server/hr_finance.py        # jalan sebagai server stdio (menunggu client, Ctrl+C untuk berhenti)
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from mcp.server.mcpserver import MCPServer
+
+DATA = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").exists()) / "data"
+
+server = MCPServer("hr-finance", instructions="Data karyawan dan klaim reimbursement (aplikasi HR/Finance tiruan).")
+
+
+def _baca(nama: str) -> dict:
+    return json.loads((DATA / nama).read_text(encoding="utf-8"))
+
+
+def _rupiah(n: int) -> str:
+    return "Rp" + f"{n:,}".replace(",", ".")
+
+
+def _cari_karyawan(teks: str) -> dict | None:
+    teks = teks.strip().lower()
+    for kid, p in _baca("karyawan.json").items():
+        if teks == kid.lower() or teks in p["nama"].lower():
+            return {"karyawan_id": kid, **p}
+    return None
+
+
+@server.tool()
+def profil_karyawan(nama: str) -> str:
+    """Profil karyawan: departemen, atasan, dan sisa anggaran reimbursement tahun ini.
+    `nama` boleh nama depan saja, misalnya 'Sari'."""
+    p = _cari_karyawan(nama)
+    if p is None:
+        return f"Karyawan '{nama}' tidak ditemukan."
+    return (f"{p['nama']} ({p['karyawan_id']}), departemen {p['departemen']}, atasan {p['atasan']}, "
+            f"sisa anggaran {_rupiah(p['sisa_anggaran'])}. [sumber: aplikasi HR via MCP]")
+
+
+@server.tool()
+def detail_klaim(claim_id: str) -> str:
+    """Detail klaim reimbursement: judul, tanggal, pengaju, daftar item, dan total diajukan.
+    `claim_id` berformat KLM-XXX, misalnya 'KLM-003'."""
+    cid = claim_id.strip().upper()
+    k = _baca("klaim.json").get(cid)
+    if k is None:
+        return f"Klaim {claim_id} tidak ditemukan."
+    pengaju = _cari_karyawan(k["karyawan_id"])
+    item = ", ".join(f"{it['kategori']} {_rupiah(it['jumlah'])}" for it in k["item"])
+    total = _rupiah(sum(it["jumlah"] for it in k["item"]))
+    return (f"{cid} '{k['judul']}' ({k['tanggal']}) oleh {pengaju['nama']}: {item}. Total diajukan {total}. "
+            "[sumber: aplikasi Finance via MCP]")
+
+
+if __name__ == "__main__":
+    server.run("stdio")
+```
+
+📄 **`app/mcp_klien.py`** (file baru): adapter dari tool MCP ke tool LangChain.
+
+<!-- kode: app/mcp_klien.py | penuh -->
+```python
+"""Client MCP minimal: tool dari MCP server -> tool LangChain yang bisa dipakai ToolNode.
+
+    uv run python -m app.mcp_klien        # tampilkan tool yang ditawarkan MCP server
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import sys
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
+from pathlib import Path
+
+from langchain_core.tools import StructuredTool
+from mcp import Client, StdioServerParameters
+
+SERVER_HR = Path(__file__).resolve().parents[1] / "mcp_server" / "hr_finance.py"
+
+
+def server_hr() -> StdioServerParameters:
+    """Cara menjalankan server: proses anak dengan Python yang sama (.venv), komunikasi lewat stdio."""
+    return StdioServerParameters(command=sys.executable, args=[str(SERVER_HR)],
+                                 env=dict(os.environ))     # teruskan env (RUNTIME_DIR, dll.) ke server
+
+
+def _jalankan(coro):
+    """asyncio.run, tapi tetap aman kalau dipanggil dari dalam event loop (misal server Studio)."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    with ThreadPoolExecutor(max_workers=1) as ex:
+        return ex.submit(asyncio.run, coro).result()
+
+
+async def daftar_tool() -> list:
+    async with Client(server_hr()) as client:
+        return (await client.list_tools()).tools
+
+
+async def panggil_tool(nama: str, argumen: dict) -> str:
+    # Satu sesi per panggilan: sederhana dan cukup untuk lab. Di produksi, sesi biasanya dibuka sekali dan dipakai ulang.
+    async with Client(server_hr()) as client:
+        hasil = await client.call_tool(nama, argumen)
+    teks = "\n".join(getattr(blok, "text", "") for blok in hasil.content)
+    return f"ERROR dari MCP server: {teks}" if hasil.is_error else teks
+
+
+def ke_tool_langchain(t) -> StructuredTool:
+    """Bungkus satu tool MCP. Nama, deskripsi, dan skema argumen diambil apa adanya dari server."""
+    async def acall(**argumen) -> str:
+        return await panggil_tool(t.name, argumen)
+
+    def call(**argumen) -> str:
+        return _jalankan(panggil_tool(t.name, argumen))
+
+    return StructuredTool(name=t.name, description=t.description or "", args_schema=t.input_schema,
+                          func=call, coroutine=acall)
+
+
+@lru_cache(maxsize=1)
+def tool_mcp() -> tuple[StructuredTool, ...]:
+    """Tanya server tool apa saja yang ada (SEKALI, lalu di-cache)."""
+    return tuple(ke_tool_langchain(t) for t in _jalankan(daftar_tool()))
+
+
+if __name__ == "__main__":
+    for t in tool_mcp():
+        print(f"{t.name}\n    {t.description.splitlines()[0]}\n    argumen: {t.args}")
+```
+
+✂️ **`app/asisten.py`**: hapus `profil_karyawan` dan `detail_klaim`. Keduanya sekarang tinggal di MCP server.
+
+<!-- hapus: app/asisten.py | profil_karyawan, detail_klaim -->
+
+➕ **`app/asisten.py`**: tambahkan. `alat` **diganti**.
+
+<!-- kode: app/asisten.py | tambah -->
+```python
+from app.mcp_klien import tool_mcp
+
+
+def alat() -> list:
+    """Tool asisten sekarang datang dari MCP server, bukan fungsi lokal."""
+    return list(tool_mcp())
+```
+
+Graph tidak berubah sama sekali. `pasang_asisten` tetap memanggil `alat()`, hanya isinya yang kini berasal dari MCP.
+
+### 7.3 Jalankan dan amati
+
+Tanya server tool apa saja yang ditawarkannya:
+
+<!-- output: 7 | uv run python -m app.mcp_klien -->
+```text
+$ uv run python -m app.mcp_klien
+profil_karyawan
+    Profil karyawan: departemen, atasan, dan sisa anggaran reimbursement tahun ini.
+    argumen: {'nama': {'title': 'Nama', 'type': 'string'}}
+detail_klaim
+    Detail klaim reimbursement: judul, tanggal, pengaju, daftar item, dan total diajukan.
+    argumen: {'claim_id': {'title': 'Claim Id', 'type': 'string'}}
+```
+<!-- /output -->
+
+Lalu jalankan pertanyaan yang sama dengan Langkah 6. Perhatikan `[sumber: ... via MCP]` di hasil tool: jawabannya datang dari proses lain.
+
+<!-- output: 7 | uv run app.py "Berapa sisa anggaran Sari dan siapa atasannya?" -->
+```text
+$ uv run app.py "Berapa sisa anggaran Sari dan siapa atasannya?"
+superstep 1: router
+    rute = "asisten"
+    claim_id = null
+    log = ["router: asisten (pertanyaan data karyawan atau klaim)"]
+superstep 2: asisten
+    messages = 
+        Human: Berapa sisa anggaran Sari dan siapa atasannya?
+        AI minta tool: profil_karyawan({"nama": "Sari"})
+    log = ["asisten: minta tool profil_karyawan"]
+superstep 3: alat
+    messages = 
+        Tool profil_karyawan: Sari Wulandari (EMP-02), departemen Marketing, atasan Tono (Marketing Lead), sisa anggaran Rp3.000.000. [sumber: aplikasi HR via MCP]
+superstep 4: asisten
+    messages = 
+        AI: Sari Wulandari (EMP-02), departemen Marketing, atasan Tono (Marketing Lead), sisa anggaran Rp3.000.000. [sumber: aplikasi HR via MCP]
+    jawaban = "Sari Wulandari (EMP-02), departemen Marketing, atasan Tono (Marketing Lead), sisa anggaran Rp3.000…
+    status_akhir = "dijawab"
+    log = ["asisten: menjawab"]
+```
+<!-- /output -->
+
+### 7.4 Inspeksi server dengan MCP Inspector (opsional)
+
+MCP Inspector adalah UI web resmi untuk mencoba MCP server tanpa agent. Butuh Node.js:
+
+```bash
+npx @modelcontextprotocol/inspector uv run mcp_server/hr_finance.py
+```
+
+Buka URL yang dicetak, klik **Connect**, lalu buka tab **Tools**. Pilih `profil_karyawan`, isi `nama`, lalu klik **Run Tool**. Inilah yang dilakukan agent di balik layar.
+
+### 7.5 Eksperimen
+
+1. **Tambah tool di server, tanpa mengubah agent.** Di `hr_finance.py`, tambahkan tool `daftar_karyawan_departemen(departemen: str) -> str`. Jalankan `uv run python -m app.mcp_klien`: tool baru langsung muncul. Dengan `LLM_MODE=live`, tanyakan *"Siapa saja karyawan di departemen IT?"*. Agent memakai tool baru itu tanpa satu baris pun berubah di `app/`.
+2. **Server mati.** Ubah sementara `SERVER_HR` ke path yang salah, lalu jalankan `uv run app.py "Berapa sisa anggaran Sari?"`. Baca errornya: graph gagal saat dibangun, karena daftar tool diambil dari server. Bagaimana sebaiknya agent bersikap kalau aplikasi internal sedang down? (Kita bahas retry di Langkah 15.)
+3. **Debug:** pasang breakpoint di `panggil_tool`, lalu jalankan lewat F5. Periksa `hasil.content`.
+
+### 7.6 Cek
+
+```bash
+uv run pytest tests/test_langkah07.py
+```
 
 ---
 
@@ -1336,7 +2002,7 @@ uv run pytest tests/test_langkah05.py
 
 **Tujuan:** pertanyaan seperti *"Berapa batas biaya hotel per malam?"* dijawab dari dokumen kebijakan (`data/kebijakan/*.md`), lengkap dengan **sumbernya**. Node placeholder `jawab_kebijakan` diganti dengan RAG sungguhan memakai **ChromaDB**.
 
-**Konsep baru:** RAG (*Retrieval-Augmented Generation*): chunking, embedding, vector database, similarity search, metadata, dan jawaban yang menyebut sumber.
+**Konsep baru:** RAG (*Retrieval-Augmented Generation*): chunking, embedding, vector database, similarity search, metadata, jawaban yang menyebut sumber, dan **retrieval sebagai tool** untuk agent.
 
 ### 8.1 Konsep
 
@@ -1353,7 +2019,7 @@ data/kebijakan/*.md                                 "Berapa batas hotel per mala
 ```
 
 - **Chunk (potongan):** satu bagian `## ...` di dokumen = satu aturan. Potongan kecil membuat hasil pencarian tepat sasaran.
-- **Embedding:** mengubah teks menjadi vektor (daftar angka). Teks yang mirip menghasilkan vektor yang berdekatan. Di mode mock kita memakai embedding **hash** (`HashingVectorizer` scikit-learn). Kemiripannya berbasis **kata yang sama**, bukan makna, tapi deterministik, tanpa internet, dan tanpa model. Embedding semantik sungguhan (ONNX) ada di bagian 8.6.
+- **Embedding:** mengubah teks menjadi vektor (daftar angka). Teks yang mirip menghasilkan vektor yang berdekatan. Di mode mock kita memakai embedding **hash** (`HashingVectorizer` scikit-learn). Kemiripannya berbasis **kata yang sama**, bukan makna, tapi deterministik, tanpa internet, dan tanpa model. Embedding semantik sungguhan (ONNX) ada di bagian 8.7.
 - **ChromaDB:** vector database. Ia menyimpan `id`, `embedding`, `document` (teks), dan `metadata` (sumber, bagian), lalu mencari `n_results` vektor terdekat (cosine distance).
 - **Skor** = `1 - jarak`. Potongan dengan skor di bawah ambang dibuang, supaya pertanyaan di luar topik dijawab "tidak ditemukan", bukan dengan aturan yang tidak nyambung.
 - **Sidik (fingerprint):** index disimpan di disk (`runtime/chroma`). Kalau isi dokumen berubah, sidiknya berubah, dan index otomatis dibangun ulang.
@@ -1501,9 +2167,11 @@ from __future__ import annotations
 import operator
 from typing import Annotated, Literal, TypedDict
 
+from langchain_core.messages import AnyMessage
+from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
-Rute = Literal["klaim", "kebijakan", "klarifikasi"]
+Rute = Literal["klaim", "kebijakan", "asisten", "klarifikasi"]
 
 
 class KlaimState(TypedDict, total=False):
@@ -1511,6 +2179,8 @@ class KlaimState(TypedDict, total=False):
     permintaan: str
     rute: Rute
     claim_id: str | None
+    # agent asisten: percakapan dengan LLM (pesan pengguna, panggilan tool, hasil tool)
+    messages: Annotated[list[AnyMessage], add_messages]
     # data & keputusan
     klaim: dict | None
     hasil_item: list[dict]
@@ -1527,7 +2197,7 @@ class KlaimState(TypedDict, total=False):
 class RuteDecision(BaseModel):
     """Field description ikut dikirim ke LLM: tulis sejelas mungkin."""
 
-    rute: Rute = Field(description="klaim (proses klaim), kebijakan (tanya aturan), atau klarifikasi")
+    rute: Rute = Field(description="klaim (proses klaim), kebijakan (tanya aturan), asisten (tanya data karyawan atau detail klaim), atau klarifikasi")
     claim_id: str | None = Field(default=None, description="Nomor klaim format KLM-XXX bila disebut")
     alasan: str = Field(description="Alasan singkat")
 
@@ -1625,7 +2295,62 @@ uv run app.py "Bolehkah makan tanpa struk?"
 uv run app.py "Bagaimana aturan resep kue?"        # -> "Tidak ditemukan di dokumen kebijakan."
 ```
 
-### 8.4 Mengintip isi ChromaDB
+### 8.4 Retrieval sebagai tool untuk agent
+
+Node `jawab_kebijakan` menjawab pertanyaan yang **murni** soal aturan. Tapi bagaimana dengan *"Sisa anggaran Sari berapa, dan bolehkah ia klaim hotel tanpa struk?"* Pertanyaan ini butuh data HR **dan** dokumen kebijakan sekaligus.
+
+Solusinya: jadikan pencarian dokumen sebagai **tool**. Agent lalu memutuskan sendiri kapan perlu mencari di dokumen, sama seperti ia memutuskan kapan perlu data HR.
+
+➕ **`app/asisten.py`**: tambahkan. `alat` **diganti**: tool MCP + tool RAG lokal.
+
+<!-- kode: app/asisten.py | tambah -->
+```python
+from app import rag
+
+
+@tool
+def cari_kebijakan(pertanyaan: str) -> str:
+    """Cari aturan reimbursement di dokumen kebijakan perusahaan (batas biaya, struk, persetujuan).
+    Mengembalikan potongan teks beserta kode dokumennya, misalnya [KEB-02]."""
+    dokumen = rag.cari_kebijakan(pertanyaan, k=2)
+    if not dokumen:
+        return "Tidak ada aturan yang relevan di dokumen kebijakan."
+    return "\n".join(f"[{d['sumber']}] {d['teks']}" for d in dokumen)
+
+
+def alat() -> list:
+    """Tool dari MCP server (data HR/Finance) + retrieval dokumen kebijakan (RAG) sebagai tool."""
+    return [*tool_mcp(), cari_kebijakan]
+```
+
+<!-- output: 8 | uv run app.py "Berapa sisa anggaran Sari, dan bolehkah klaim hotel tanpa struk?" -->
+```text
+$ uv run app.py "Berapa sisa anggaran Sari, dan bolehkah klaim hotel tanpa struk?"
+superstep 1: router
+    rute = "asisten"
+    claim_id = null
+    log = ["router: asisten (pertanyaan data karyawan atau klaim)"]
+superstep 2: asisten
+    messages = 
+        Human: Berapa sisa anggaran Sari, dan bolehkah klaim hotel tanpa struk?
+        AI minta tool: profil_karyawan({"nama": "Sari"}), cari_kebijakan({"pertanyaan": "Berapa sisa anggaran Sari, dan bolehkah klaim hotel tanpa struk?"})
+    log = ["asisten: minta tool profil_karyawan, cari_kebijakan"]
+superstep 3: alat
+    messages = 
+        Tool profil_karyawan: Sari Wulandari (EMP-02), departemen Marketing, atasan Tono (Marketing Lead), sisa anggaran Rp3.000.000. [sumber: aplikasi HR via MCP]
+        Tool cari_kebijakan: [KEB-02] Kategori hotel dan peralatan wajib melampirkan struk atau invoice asli. Tanpa struk, item tersebut ditolak. [KEB-02] Kategori tra…
+superstep 4: asisten
+    messages = 
+        AI: Sari Wulandari (EMP-02), departemen Marketing, atasan Tono (Marketing Lead), sisa anggaran Rp3.000.000. [sumber: aplikasi HR via MCP] [KEB-02] Kategori hot…
+    jawaban = "Sari Wulandari (EMP-02), departemen Marketing, atasan Tono (Marketing Lead), sisa anggaran Rp3.000…
+    status_akhir = "dijawab"
+    log = ["asisten: menjawab"]
+```
+<!-- /output -->
+
+Satu permintaan, dua sumber: `profil_karyawan` dari MCP server dan `cari_kebijakan` dari ChromaDB. Keduanya dijalankan `ToolNode` di superstep yang sama.
+
+### 8.5 Mengintip isi ChromaDB
 
 Index tersimpan di `runtime/chroma`. Kamu bisa membukanya langsung dengan API ChromaDB:
 
@@ -1640,14 +2365,14 @@ for kol in c.list_collections():
 "
 ```
 
-### 8.5 Eksperimen
+### 8.6 Eksperimen
 
 1. **Pertanyaan di luar topik:** `uv run python -m app.rag "Bagaimana aturan resep kue?"`. Tidak ada potongan yang lolos `SKOR_MINIMUM`. Turunkan ambangnya ke `0.1`, lalu lihat potongan tidak relevan yang ikut masuk. Itulah yang akan "dikarang-karang" LLM kalau ambangnya terlalu rendah. Kembalikan ke `0.2`.
 2. **Index otomatis dibangun ulang:** tambahkan bagian baru di `data/kebijakan/KEB-02_bukti_struk.md`, misalnya `## Struk hilang` beserta isinya. Jalankan `--potongan` dan cari "struk hilang". Kode mendeteksi sidik yang berubah dan membangun index ulang. Hapus lagi bagian itu setelah selesai, supaya test tetap cocok.
-3. **Kelemahan embedding hash:** cari "Berapa plafon penginapan?". Kata "plafon" dan "penginapan" tidak ada di dokumen, jadi hasilnya buruk, padahal maknanya sama dengan "batas hotel". Embedding semantik (bagian 8.6) menyelesaikan masalah ini.
+3. **Kelemahan embedding hash:** cari "Berapa plafon penginapan?". Kata "plafon" dan "penginapan" tidak ada di dokumen, jadi hasilnya buruk, padahal maknanya sama dengan "batas hotel". Embedding semantik (bagian 8.7) menyelesaikan masalah ini.
 4. **Debug:** pasang breakpoint di `cari_kebijakan` setelah `kol.query(...)`, lalu periksa isi `res`. Bentuknya list di dalam list, karena ChromaDB menerima banyak query sekaligus.
 
-### 8.6 (Opsional) Embedding semantik (ONNX)
+### 8.7 (Opsional) Embedding semantik (ONNX)
 
 ➕ **`app/rag.py`**: tambahkan. `embed` dan `id_embedding` **diganti**.
 
@@ -1681,14 +2406,14 @@ def id_embedding() -> str:
 Coba:
 
 ```bash
-EMBEDDING=onnx uv run python -m app.rag "Berapa plafon penginapan?"     # bandingkan dengan eksperimen 8.5.3
+EMBEDDING=onnx uv run python -m app.rag "Berapa plafon penginapan?"     # bandingkan dengan eksperimen 8.6.3
 ```
 
 Catatan:
 - Skor embedding semantik berbeda skalanya dari skor hash. Kalau hasilnya terlalu sering kosong atau terlalu longgar, sesuaikan `SKOR_MINIMUM`.
 - `all-MiniLM-L6-v2` adalah model bahasa Inggris. Untuk teks Indonesia, hasilnya lebih baik dengan model multibahasa, misalnya `paraphrase-multilingual-MiniLM-L12-v2` lewat `SentenceTransformerEmbeddingFunction`, atau model embedding di gateway. Itu bisa jadi latihan lanjutan.
 
-### 8.7 Cek
+### 8.8 Cek
 
 ```bash
 uv run pytest tests/test_langkah08.py
@@ -1698,7 +2423,170 @@ uv run pytest tests/test_langkah08.py
 
 ## Langkah 9 — Evaluasi dasar dengan test case
 
-> **Menyusul.** Dataset kasus uji dan skor per kategori, dijalankan di mode mock dan live. Ditulis di Tahap B.
+**Tujuan:** mengukur apakah agent **berperilaku benar** pada sekumpulan kasus, lalu menjalankannya ulang setiap kali prompt, model, atau kode berubah. Hasilnya berupa angka per kategori, bukan "kelihatannya sudah bagus".
+
+**Konsep baru:** dataset evaluasi, kriteria yang bisa diperiksa kode, skor per kategori, regresi, membandingkan mock dan live.
+
+### 9.1 Konsep
+
+`pytest` menguji **kode**: fungsi ini mengembalikan nilai ini. Evaluasi menguji **perilaku sistem** dari luar, terutama bagian yang memakai LLM:
+
+| Kategori | Pertanyaan yang dijawab | Cara memeriksa |
+|---|---|---|
+| routing | Apakah permintaan masuk ke jalur yang tepat? | `state["rute"]` |
+| keputusan | Apakah keputusan klaim dan nominalnya benar? | `state["keputusan"]` |
+| tool | Apakah agent memanggil tool yang seharusnya? | `tool_calls` di `messages` |
+| rag | Apakah jawaban aturan menyebut sumber yang benar? | `state["sumber"]`, isi `jawaban` |
+
+Prinsipnya:
+- **Mulai dari kriteria yang bisa diperiksa kode** (rute, angka, nama tool, kata kunci). Murah, cepat, dan tidak ambigu.
+- Kriteria yang subjektif ("apakah memonya sopan?") butuh **LLM-as-judge**. Pola ini kita pakai di Langkah 12.
+- Di mode **mock**, skornya harus 100%. Itu pengaman regresi untuk kode. Di mode **live**, skor bisa naik turun antar-run dan antar-model. Itulah yang ingin kita ukur.
+- Dataset tumbuh dari kasus nyata: setiap bug atau keluhan pengguna jadi satu kasus baru.
+
+### 9.2 Tulis kode
+
+📄 **`kasus_eval.jsonl`** (file baru, di folder utama): satu kasus per baris.
+
+<!-- kode: kasus_eval.jsonl | penuh -->
+```json
+{"id": "R1", "kategori": "routing", "permintaan": "Proses klaim KLM-002", "harap": {"rute": "klaim"}}
+{"id": "R2", "kategori": "routing", "permintaan": "Berapa batas biaya hotel per malam?", "harap": {"rute": "kebijakan"}}
+{"id": "R3", "kategori": "routing", "permintaan": "Berapa sisa anggaran Sari?", "harap": {"rute": "asisten"}}
+{"id": "R4", "kategori": "routing", "permintaan": "halo", "harap": {"rute": "klarifikasi"}}
+{"id": "R5", "kategori": "routing", "permintaan": "Proses KLM-404", "harap": {"rute": "klarifikasi"}}
+{"id": "K1", "kategori": "keputusan", "permintaan": "Proses klaim KLM-001", "harap": {"aksi": "setujui_sebagian", "total": 1020000}}
+{"id": "K2", "kategori": "keputusan", "permintaan": "Proses klaim KLM-002", "harap": {"aksi": "setujui_penuh", "total": 180000}}
+{"id": "K3", "kategori": "keputusan", "permintaan": "Proses klaim KLM-003", "harap": {"aksi": "setujui_sebagian", "total": 2100000}}
+{"id": "T1", "kategori": "tool", "permintaan": "Berapa sisa anggaran Sari Wulandari?", "harap": {"tool": ["profil_karyawan"], "jawaban_memuat": ["3.000.000"]}}
+{"id": "T2", "kategori": "tool", "permintaan": "Apa detail KLM-003?", "harap": {"tool": ["detail_klaim"], "jawaban_memuat": ["KLM-003"]}}
+{"id": "T3", "kategori": "tool", "permintaan": "Siapa atasan Budi, dan bolehkah klaim hotel tanpa struk?", "harap": {"tool": ["profil_karyawan", "cari_kebijakan"], "jawaban_memuat": ["Maya"]}}
+{"id": "G1", "kategori": "rag", "permintaan": "Bolehkah makan tanpa struk?", "harap": {"rute": "kebijakan", "sumber": "KEB-02"}}
+{"id": "G2", "kategori": "rag", "permintaan": "Apakah langganan streaming bisa diklaim?", "harap": {"rute": "kebijakan", "sumber": "KEB-01"}}
+```
+
+📄 **`evaluasi.py`** (file baru, di folder utama)
+
+<!-- kode: evaluasi.py | penuh -->
+```python
+"""Evaluasi perilaku agent dengan test case.
+
+    uv run evaluasi.py                     # mode dari .env (mock: harus 100%)
+    LLM_MODE=live uv run evaluasi.py       # ukur LLM sungguhan
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+from langgraph.checkpoint.memory import InMemorySaver
+
+from app.graph import build_graph
+
+KASUS = Path(__file__).with_name("kasus_eval.jsonl")
+
+
+def muat_kasus() -> list[dict]:
+    return [json.loads(baris) for baris in KASUS.read_text(encoding="utf-8").splitlines() if baris.strip()]
+
+
+def jalankan_kasus(graph, kasus: dict) -> dict:
+    """Jalankan satu kasus, kembalikan state akhirnya (tetap terbaca walau graph berhenti di interrupt)."""
+    config = {"configurable": {"thread_id": f"eval-{kasus['id']}"}}
+    graph.invoke({"permintaan": kasus["permintaan"]}, config)
+    return graph.get_state(config).values
+
+
+def periksa(kasus: dict, s: dict) -> list[str]:
+    """Bandingkan state dengan harapan. Kembalikan daftar kegagalan (kosong = lolos)."""
+    h, gagal = kasus["harap"], []
+    if "rute" in h and s.get("rute") != h["rute"]:
+        gagal.append(f"rute {s.get('rute')!r}, harusnya {h['rute']!r}")
+    keputusan = s.get("keputusan", {})
+    if "aksi" in h and keputusan.get("aksi") != h["aksi"]:
+        gagal.append(f"aksi {keputusan.get('aksi')!r}, harusnya {h['aksi']!r}")
+    if "total" in h and keputusan.get("total_disetujui") != h["total"]:
+        gagal.append(f"total {keputusan.get('total_disetujui')}, harusnya {h['total']}")
+    if "tool" in h:
+        dipanggil = {tc["name"] for m in s.get("messages", []) for tc in getattr(m, "tool_calls", [])}
+        if kurang := set(h["tool"]) - dipanggil:
+            gagal.append(f"tool tidak dipanggil: {sorted(kurang)} (yang dipanggil: {sorted(dipanggil)})")
+    for kata in h.get("jawaban_memuat", []):
+        if kata.lower() not in s.get("jawaban", "").lower():
+            gagal.append(f"jawaban tidak memuat {kata!r}")
+    if "sumber" in h and h["sumber"] not in s.get("sumber", []):
+        gagal.append(f"sumber {s.get('sumber')}, harusnya memuat {h['sumber']!r}")
+    return gagal
+
+
+def main() -> int:
+    graph = build_graph(InMemorySaver())
+    skor: dict[str, list[bool]] = defaultdict(list)
+    for kasus in muat_kasus():
+        try:
+            gagal = periksa(kasus, jalankan_kasus(graph, kasus))
+        except Exception as e:  # noqa: BLE001  (satu kasus error tidak boleh menghentikan evaluasi)
+            gagal = [f"ERROR {type(e).__name__}: {e}"]
+        skor[kasus["kategori"]].append(not gagal)
+        print(f"{'✔' if not gagal else '✖'} {kasus['id']:<3} {kasus['permintaan'][:55]:<55} {'; '.join(gagal)}")
+
+    print("\nskor per kategori:")
+    for kategori, hasil in skor.items():
+        print(f"  {kategori:<10} {sum(hasil)}/{len(hasil)}")
+    semua = [x for hasil in skor.values() for x in hasil]
+    print(f"  {'TOTAL':<10} {sum(semua)}/{len(semua)}  ({100 * sum(semua) / len(semua):.0f}%)")
+    return 0 if all(semua) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+### 9.3 Jalankan dan amati
+
+<!-- output: 9 | uv run evaluasi.py -->
+```text
+$ uv run evaluasi.py
+✔ R1  Proses klaim KLM-002                                    
+✔ R2  Berapa batas biaya hotel per malam?                     
+✔ R3  Berapa sisa anggaran Sari?                              
+✔ R4  halo                                                    
+✔ R5  Proses KLM-404                                          
+✔ K1  Proses klaim KLM-001                                    
+✔ K2  Proses klaim KLM-002                                    
+✔ K3  Proses klaim KLM-003                                    
+✔ T1  Berapa sisa anggaran Sari Wulandari?                    
+✔ T2  Apa detail KLM-003?                                     
+✔ T3  Siapa atasan Budi, dan bolehkah klaim hotel tanpa struk 
+✔ G1  Bolehkah makan tanpa struk?                             
+✔ G2  Apakah langganan streaming bisa diklaim?                
+
+skor per kategori:
+  routing    5/5
+  keputusan  3/3
+  tool       3/3
+  rag        2/2
+  TOTAL      13/13  (100%)
+```
+<!-- /output -->
+
+Di mode mock semuanya lolos. Kalau suatu saat ada yang gagal, berarti ada **regresi**: perubahan kode merusak perilaku yang dulu benar. `evaluasi.py` mengembalikan exit code 1, jadi bisa dipasang di CI.
+
+### 9.4 Eksperimen
+
+1. **(Live)** `LLM_MODE=live uv run evaluasi.py`. Jalankan dua sampai tiga kali. Kasus mana yang kadang gagal? Biasanya routing untuk kalimat yang ambigu, atau agent yang lupa memanggil salah satu tool di T3. Contoh nyata saat lab ini disusun: dengan `deepseek-v4-flash`, router mengirim *"Berapa sisa anggaran Sari, dan bolehkah klaim hotel tanpa struk?"* ke `klarifikasi`, dengan alasan "permintaan memuat dua intent". Perbaikannya satu kalimat di `SYSTEM_ROUTER` (pertanyaan campuran masuk ke `asisten`). Temuan seperti ini hanya muncul kalau kamu mengukur dengan LLM sungguhan.
+2. **Perbaiki lewat prompt, lalu ukur.** Pilih satu kasus yang gagal di live. Ubah `SYSTEM_ROUTER` atau `SYSTEM_ASISTEN`, lalu jalankan evaluasi lagi. Skornya naik? Kasus lain jadi rusak? Inilah alasan perubahan prompt harus selalu diukur dengan dataset yang sama.
+3. **Tambah kasus sendiri.** Tulis kasus yang menurutmu sulit, misalnya `"tolong cek reimburse saya yang nomor klm 3"`. Apa harapan yang benar, dan apakah sistem saat ini memenuhinya?
+4. **Bandingkan model.** Isi `LLM_MODEL` dengan model lain di gateway yang sama, lalu bandingkan skor dan waktunya.
+
+### 9.5 Cek
+
+```bash
+uv run pytest tests/test_langkah09.py
+```
 
 ---
 
@@ -1770,9 +2658,11 @@ from __future__ import annotations
 import operator
 from typing import Annotated, Literal, TypedDict
 
+from langchain_core.messages import AnyMessage
+from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
-Rute = Literal["klaim", "kebijakan", "klarifikasi"]
+Rute = Literal["klaim", "kebijakan", "asisten", "klarifikasi"]
 
 
 class KlaimState(TypedDict, total=False):
@@ -1780,6 +2670,8 @@ class KlaimState(TypedDict, total=False):
     permintaan: str
     rute: Rute
     claim_id: str | None
+    # agent asisten: percakapan dengan LLM (pesan pengguna, panggilan tool, hasil tool)
+    messages: Annotated[list[AnyMessage], add_messages]
     # data
     klaim: dict | None
     profil: dict                # cek_karyawan: data dari API HR
@@ -1797,7 +2689,7 @@ class KlaimState(TypedDict, total=False):
 class RuteDecision(BaseModel):
     """Field description ikut dikirim ke LLM: tulis sejelas mungkin."""
 
-    rute: Rute = Field(description="klaim (proses klaim), kebijakan (tanya aturan), atau klarifikasi")
+    rute: Rute = Field(description="klaim (proses klaim), kebijakan (tanya aturan), asisten (tanya data karyawan atau detail klaim), atau klarifikasi")
     claim_id: str | None = Field(default=None, description="Nomor klaim format KLM-XXX bila disebut")
     alasan: str = Field(description="Alasan singkat")
 
@@ -1854,6 +2746,7 @@ from __future__ import annotations
 
 from langgraph.graph import END, START, StateGraph
 
+from app.asisten import pasang_asisten
 from app.nodes import (
     cek_karyawan, jawab_kebijakan, klarifikasi, muat_klaim, periksa_semua, putuskan, router,
     rute_setelah_router,
@@ -1872,9 +2765,10 @@ def build_graph(checkpointer=None):
     g.add_node("putuskan", putuskan)
 
     g.add_edge(START, "router")
-    g.add_conditional_edges("router", rute_setelah_router, ["muat_klaim", "jawab_kebijakan", "klarifikasi"])
+    g.add_conditional_edges("router", rute_setelah_router, ["muat_klaim", "jawab_kebijakan", "asisten", "klarifikasi"])
     g.add_edge("klarifikasi", END)
     g.add_edge("jawab_kebijakan", END)
+    pasang_asisten(g)                     # agent asisten (Langkah 6)
 
     # FAN-OUT: dua edge keluar dari muat_klaim -> dua node jalan di superstep yang sama
     g.add_edge("muat_klaim", "cek_karyawan")
@@ -1980,9 +2874,11 @@ from __future__ import annotations
 import operator
 from typing import Annotated, Literal, TypedDict
 
+from langchain_core.messages import AnyMessage
+from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
-Rute = Literal["klaim", "kebijakan", "klarifikasi"]
+Rute = Literal["klaim", "kebijakan", "asisten", "klarifikasi"]
 
 
 class KlaimState(TypedDict, total=False):
@@ -1990,6 +2886,8 @@ class KlaimState(TypedDict, total=False):
     permintaan: str
     rute: Rute
     claim_id: str | None
+    # agent asisten: percakapan dengan LLM (pesan pengguna, panggilan tool, hasil tool)
+    messages: Annotated[list[AnyMessage], add_messages]
     # data
     klaim: dict | None
     profil: dict
@@ -2015,7 +2913,7 @@ class ItemTask(TypedDict):
 class RuteDecision(BaseModel):
     """Field description ikut dikirim ke LLM: tulis sejelas mungkin."""
 
-    rute: Rute = Field(description="klaim (proses klaim), kebijakan (tanya aturan), atau klarifikasi")
+    rute: Rute = Field(description="klaim (proses klaim), kebijakan (tanya aturan), asisten (tanya data karyawan atau detail klaim), atau klarifikasi")
     claim_id: str | None = Field(default=None, description="Nomor klaim format KLM-XXX bila disebut")
     alasan: str = Field(description="Alasan singkat")
 
@@ -2059,6 +2957,7 @@ from __future__ import annotations
 
 from langgraph.graph import END, START, StateGraph
 
+from app.asisten import pasang_asisten
 from app.nodes import (
     cek_karyawan, fan_out_item, jawab_kebijakan, klarifikasi, muat_klaim, periksa_item, putuskan, router,
     rute_setelah_router,
@@ -2077,9 +2976,10 @@ def build_graph(checkpointer=None):
     g.add_node("putuskan", putuskan)
 
     g.add_edge(START, "router")
-    g.add_conditional_edges("router", rute_setelah_router, ["muat_klaim", "jawab_kebijakan", "klarifikasi"])
+    g.add_conditional_edges("router", rute_setelah_router, ["muat_klaim", "jawab_kebijakan", "asisten", "klarifikasi"])
     g.add_edge("klarifikasi", END)
     g.add_edge("jawab_kebijakan", END)
+    pasang_asisten(g)                     # agent asisten (Langkah 6)
 
     g.add_edge("muat_klaim", "cek_karyawan")                                # cabang tetap
     g.add_conditional_edges("muat_klaim", fan_out_item, ["periksa_item"])   # cabang dinamis (Send x N)
@@ -2104,17 +3004,17 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-003", "karyawan_id": "EMP-03", "judul": "Perlengkapan kerja remote", "tanggal": "…
     log = ["muat_klaim: 3 item"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-003-3", "kategori": "hiburan", "diajukan": 250000, "disetujui": 0, "status": "dit…
-    log = ["periksa_item KLM-003-3: ditolak"]
-superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-003-2", "kategori": "peralatan", "diajukan": 1350000, "disetujui": 0, "status": "…
-    log = ["periksa_item KLM-003-2: ditolak"]
-superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-003-1", "kategori": "peralatan", "diajukan": 2100000, "disetujui": 2100000, "stat…
     log = ["periksa_item KLM-003-1: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-03", "nama": "Budi Santoso", "departemen": "IT", "atasan": "Maya (IT Manager)"…
     log = ["cek_karyawan: Budi Santoso, sisa anggaran Rp6.000.000"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-003-3", "kategori": "hiburan", "diajukan": 250000, "disetujui": 0, "status": "dit…
+    log = ["periksa_item KLM-003-3: ditolak"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-003-2", "kategori": "peralatan", "diajukan": 1350000, "disetujui": 0, "status": "…
+    log = ["periksa_item KLM-003-2: ditolak"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_sebagian", "alasan": "sebagian item dipotong atau ditolak", "total_diajukan": 370…
     log = ["putuskan: setujui_sebagian, perlu_persetujuan=True"]
@@ -2183,9 +3083,11 @@ from __future__ import annotations
 import operator
 from typing import Annotated, Literal, TypedDict
 
+from langchain_core.messages import AnyMessage
+from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
-Rute = Literal["klaim", "kebijakan", "klarifikasi"]
+Rute = Literal["klaim", "kebijakan", "asisten", "klarifikasi"]
 
 
 class KlaimState(TypedDict, total=False):
@@ -2193,6 +3095,8 @@ class KlaimState(TypedDict, total=False):
     permintaan: str
     rute: Rute
     claim_id: str | None
+    # agent asisten: percakapan dengan LLM (pesan pengguna, panggilan tool, hasil tool)
+    messages: Annotated[list[AnyMessage], add_messages]
     # data
     klaim: dict | None
     profil: dict
@@ -2222,7 +3126,7 @@ class ItemTask(TypedDict):
 class RuteDecision(BaseModel):
     """Field description ikut dikirim ke LLM: tulis sejelas mungkin."""
 
-    rute: Rute = Field(description="klaim (proses klaim), kebijakan (tanya aturan), atau klarifikasi")
+    rute: Rute = Field(description="klaim (proses klaim), kebijakan (tanya aturan), asisten (tanya data karyawan atau detail klaim), atau klarifikasi")
     claim_id: str | None = Field(default=None, description="Nomor klaim format KLM-XXX bila disebut")
     alasan: str = Field(description="Alasan singkat")
 
@@ -2330,6 +3234,7 @@ from __future__ import annotations
 
 from langgraph.graph import END, START, StateGraph
 
+from app.asisten import pasang_asisten
 from app.nodes import (
     cek_karyawan, fan_out_item, jawab_kebijakan, klarifikasi, muat_klaim, nilai_memo, periksa_item, putuskan,
     router, rute_setelah_nilai, rute_setelah_router, tulis_memo,
@@ -2350,9 +3255,10 @@ def build_graph(checkpointer=None):
     g.add_node("nilai_memo", nilai_memo)
 
     g.add_edge(START, "router")
-    g.add_conditional_edges("router", rute_setelah_router, ["muat_klaim", "jawab_kebijakan", "klarifikasi"])
+    g.add_conditional_edges("router", rute_setelah_router, ["muat_klaim", "jawab_kebijakan", "asisten", "klarifikasi"])
     g.add_edge("klarifikasi", END)
     g.add_edge("jawab_kebijakan", END)
+    pasang_asisten(g)                     # agent asisten (Langkah 6)
 
     g.add_edge("muat_klaim", "cek_karyawan")
     g.add_conditional_edges("muat_klaim", fan_out_item, ["periksa_item"])
@@ -2380,14 +3286,14 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
     log = ["muat_klaim: 2 item"]
 superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
+    log = ["periksa_item KLM-002-2: ok"]
+superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
     log = ["periksa_item KLM-002-1: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
     log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
-superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
-    log = ["periksa_item KLM-002-2: ok"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_penuh", "alasan": "semua item sesuai aturan", "total_diajukan": 180000, "total_di…
     log = ["putuskan: setujui_penuh, perlu_persetujuan=False"]
@@ -2473,6 +3379,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 
 from app.config import get_settings
+from app.asisten import pasang_asisten
 from app.nodes import (
     cek_karyawan, fan_out_item, jawab_kebijakan, klarifikasi, muat_klaim, nilai_memo, periksa_item, putuskan,
     router, rute_setelah_nilai, rute_setelah_router, tulis_memo,
@@ -2493,9 +3400,10 @@ def build_graph(checkpointer=None):
     g.add_node("nilai_memo", nilai_memo)
 
     g.add_edge(START, "router")
-    g.add_conditional_edges("router", rute_setelah_router, ["muat_klaim", "jawab_kebijakan", "klarifikasi"])
+    g.add_conditional_edges("router", rute_setelah_router, ["muat_klaim", "jawab_kebijakan", "asisten", "klarifikasi"])
     g.add_edge("klarifikasi", END)
     g.add_edge("jawab_kebijakan", END)
+    pasang_asisten(g)                     # agent asisten (Langkah 6)
 
     g.add_edge("muat_klaim", "cek_karyawan")
     g.add_conditional_edges("muat_klaim", fan_out_item, ["periksa_item"])
@@ -2631,14 +3539,14 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
     log = ["muat_klaim: 2 item"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
-    log = ["periksa_item KLM-002-2: ok"]
-superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
     log = ["periksa_item KLM-002-1: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
     log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
+    log = ["periksa_item KLM-002-2: ok"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_penuh", "alasan": "semua item sesuai aturan", "total_diajukan": 180000, "total_di…
     log = ["putuskan: setujui_penuh, perlu_persetujuan=False"]
@@ -2661,6 +3569,7 @@ state akhir (superstep 8):
     permintaan = "Proses klaim KLM-002"
     rute = "klaim"
     claim_id = "KLM-002"
+    messages = []
     klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
     profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
     hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
@@ -2674,16 +3583,16 @@ thread: demo-13
 
 $ uv run app.py --thread demo-13 --riwayat
 step  sumber  next                           checkpoint_id
-   8  loop    -                              1f1e4cf3-ad03-64fa-8008-316c73f6f5e2
-   7  loop    nilai_memo                     1f1e4cf3-ad02-65c8-8007-a40c9c32f357
-   6  loop    tulis_memo                     1f1e4cf3-ad01-642a-8006-acb9d4e4c83c
-   5  loop    nilai_memo                     1f1e4cf3-acff-6e4a-8005-7922f7152ae4
-   4  loop    tulis_memo                     1f1e4cf3-acfe-6b3a-8004-05035e82bf85
-   3  loop    putuskan                       1f1e4cf3-acfd-68ac-8003-3420457762ec
-   2  loop    periksa_item, periksa_item, ce 1f1e4cf3-acfa-651c-8002-74d0c13d4209
-   1  loop    muat_klaim                     1f1e4cf3-acf8-6fb4-8001-bc7e37ff8051
-   0  loop    router                         1f1e4cf3-acf7-61aa-8000-6724e751e077
-  -1  input   __start__                      1f1e4cf3-acf5-6210-bfff-84a233898008
+   8  loop    -                              1f1e4d22-64f8-6370-8008-bb45b22e23df
+   7  loop    nilai_memo                     1f1e4d22-64f6-6e62-8007-b9285bd39231
+   6  loop    tulis_memo                     1f1e4d22-64f5-695e-8006-dfb800b4de24
+   5  loop    nilai_memo                     1f1e4d22-64f3-6d0c-8005-283f12d4529e
+   4  loop    tulis_memo                     1f1e4d22-64f2-64ac-8004-69387e035fac
+   3  loop    putuskan                       1f1e4d22-64f1-616a-8003-12d0ba4de2e8
+   2  loop    periksa_item, periksa_item, ce 1f1e4d22-64ec-644e-8002-4769767f3de9
+   1  loop    muat_klaim                     1f1e4d22-64ea-6950-8001-650b4dd8563c
+   0  loop    router                         1f1e4d22-64e8-6844-8000-5cfb7561a7ae
+  -1  input   __start__                      1f1e4d22-64e6-67ec-bfff-2895ae53a012
 ```
 <!-- /output -->
 
@@ -2792,9 +3701,11 @@ from __future__ import annotations
 import operator
 from typing import Annotated, Literal, TypedDict
 
+from langchain_core.messages import AnyMessage
+from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
-Rute = Literal["klaim", "kebijakan", "klarifikasi"]
+Rute = Literal["klaim", "kebijakan", "asisten", "klarifikasi"]
 
 
 class KlaimState(TypedDict, total=False):
@@ -2802,6 +3713,8 @@ class KlaimState(TypedDict, total=False):
     permintaan: str
     rute: Rute
     claim_id: str | None
+    # agent asisten: percakapan dengan LLM (pesan pengguna, panggilan tool, hasil tool)
+    messages: Annotated[list[AnyMessage], add_messages]
     # data
     klaim: dict | None
     profil: dict
@@ -2834,7 +3747,7 @@ class ItemTask(TypedDict):
 class RuteDecision(BaseModel):
     """Field description ikut dikirim ke LLM: tulis sejelas mungkin."""
 
-    rute: Rute = Field(description="klaim (proses klaim), kebijakan (tanya aturan), atau klarifikasi")
+    rute: Rute = Field(description="klaim (proses klaim), kebijakan (tanya aturan), asisten (tanya data karyawan atau detail klaim), atau klarifikasi")
     claim_id: str | None = Field(default=None, description="Nomor klaim format KLM-XXX bila disebut")
     alasan: str = Field(description="Alasan singkat")
 
@@ -2957,6 +3870,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 
 from app.config import get_settings
+from app.asisten import pasang_asisten
 from app.nodes import (
     bayar, cek_karyawan, fan_out_item, jawab_kebijakan, klarifikasi, muat_klaim, nilai_memo, periksa_item,
     persetujuan, putuskan, router, rute_setelah_nilai, rute_setelah_persetujuan, rute_setelah_router, selesai,
@@ -2981,9 +3895,10 @@ def build_graph(checkpointer=None):
     g.add_node("selesai", selesai)
 
     g.add_edge(START, "router")
-    g.add_conditional_edges("router", rute_setelah_router, ["muat_klaim", "jawab_kebijakan", "klarifikasi"])
+    g.add_conditional_edges("router", rute_setelah_router, ["muat_klaim", "jawab_kebijakan", "asisten", "klarifikasi"])
     g.add_edge("klarifikasi", END)
     g.add_edge("jawab_kebijakan", END)
+    pasang_asisten(g)                     # agent asisten (Langkah 6)
 
     g.add_edge("muat_klaim", "cek_karyawan")
     g.add_conditional_edges("muat_klaim", fan_out_item, ["periksa_item"])
@@ -3119,12 +4034,12 @@ superstep 2: muat_klaim
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-001-1", "kategori": "hotel", "diajukan": 650000, "disetujui": 650000, "status": "…
     log = ["periksa_item KLM-001-1: ok"]
-superstep 3: cek_karyawan
-    profil = {"karyawan_id": "EMP-01", "nama": "Andi Pratama", "departemen": "Sales", "atasan": "Rina (Sales Man…
-    log = ["cek_karyawan: Andi Pratama, sisa anggaran Rp8.000.000"]
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-001-2", "kategori": "makan", "diajukan": 180000, "disetujui": 150000, "status": "…
     log = ["periksa_item KLM-001-2: dipotong"]
+superstep 3: cek_karyawan
+    profil = {"karyawan_id": "EMP-01", "nama": "Andi Pratama", "departemen": "Sales", "atasan": "Rina (Sales Man…
+    log = ["cek_karyawan: Andi Pratama, sisa anggaran Rp8.000.000"]
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-001-3", "kategori": "transport", "diajukan": 220000, "disetujui": 220000, "status…
     log = ["periksa_item KLM-001-3: ok"]
@@ -3188,6 +4103,7 @@ state akhir (superstep 11):
     permintaan = "Proses klaim KLM-001"
     rute = "klaim"
     claim_id = "KLM-001"
+    messages = []
     klaim = {"claim_id": "KLM-001", "karyawan_id": "EMP-01", "judul": "Kunjungan klien Bandung", "tanggal": "20…
     profil = {"karyawan_id": "EMP-01", "nama": "Andi Pratama", "departemen": "Sales", "atasan": "Rina (Sales Man…
     hasil_item = [{"item_id": "KLM-001-1", "kategori": "hotel", "diajukan": 650000, "disetujui": 650000, "status": "…
@@ -3348,6 +4264,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import RetryPolicy
 
 from app.config import get_settings
+from app.asisten import pasang_asisten
 from app.nodes import (
     bayar, cek_karyawan, fan_out_item, jawab_kebijakan, klarifikasi, muat_klaim, nilai_memo, periksa_item,
     persetujuan, putuskan, router, rute_setelah_nilai, rute_setelah_persetujuan, rute_setelah_router, selesai,
@@ -3381,9 +4298,10 @@ def build_graph(checkpointer=None):
     g.add_node("selesai", selesai)
 
     g.add_edge(START, "router")
-    g.add_conditional_edges("router", rute_setelah_router, ["muat_klaim", "jawab_kebijakan", "klarifikasi"])
+    g.add_conditional_edges("router", rute_setelah_router, ["muat_klaim", "jawab_kebijakan", "asisten", "klarifikasi"])
     g.add_edge("klarifikasi", END)
     g.add_edge("jawab_kebijakan", END)
+    pasang_asisten(g)                     # agent asisten (Langkah 6)
 
     g.add_edge("muat_klaim", "cek_karyawan")
     g.add_conditional_edges("muat_klaim", fan_out_item, ["periksa_item"])
@@ -3463,11 +4381,11 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
     log = ["muat_klaim: 2 item"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
-    log = ["periksa_item KLM-002-1: ok"]
-superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
     log = ["periksa_item KLM-002-2: ok"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
+    log = ["periksa_item KLM-002-1: ok"]
 superstep 3: cek_karyawan ✖ GAGAL: API HR timeout (panggilan ke-4)
 
 ✖ graph berhenti: HRTimeoutError: API HR timeout (panggilan ke-4)
@@ -3507,6 +4425,7 @@ state akhir (superstep 10):
     permintaan = "Proses klaim KLM-002"
     rute = "klaim"
     claim_id = "KLM-002"
+    messages = []
     klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
     profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
     hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
@@ -3538,11 +4457,11 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
     log = ["muat_klaim: 2 item"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
-    log = ["periksa_item KLM-002-2: ok"]
-superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
     log = ["periksa_item KLM-002-1: ok"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
+    log = ["periksa_item KLM-002-2: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
     log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
@@ -3567,6 +4486,18 @@ superstep 8: nilai_memo
 💥 SIMULASI CRASH: transfer TRF-0001 sudah terjadi, tetapi node 'bayar' belum selesai.
 
 $ uv run app.py --thread crash-15 --lanjut
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
+    log = ["periksa_item KLM-002-1: ok"]
+superstep 3: cek_karyawan
+    profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
+    log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
+    log = ["periksa_item KLM-002-2: ok"]
+superstep 4: putuskan
+    keputusan = {"aksi": "setujui_penuh", "alasan": "semua item sesuai aturan", "total_diajukan": 180000, "total_di…
+    log = ["putuskan: setujui_penuh, perlu_persetujuan=False"]
 superstep 5: tulis_memo
     draf_memo = "Memo klaim KLM-002 (Rapat vendor di Sudirman) atas nama Sari Wulandari.\nKeputusan: disetujui penu…
     jumlah_draf = 1
@@ -3594,6 +4525,7 @@ state akhir (superstep 10):
     permintaan = "Proses klaim KLM-002"
     rute = "klaim"
     claim_id = "KLM-002"
+    messages = []
     klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
     profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
     hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
@@ -4012,9 +4944,9 @@ for potongan in graph.stream({"permintaan": "Proses klaim KLM-002"}, stream_mode
 $ uv run python -m app.pantau "Proses klaim KLM-002"
 ✔ router: router: klaim (menyebut nomor klaim)
 ✔ muat_klaim: muat_klaim: 2 item
-✔ periksa_item: periksa_item KLM-002-2: ok
 ✔ cek_karyawan: cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000
 ✔ periksa_item: periksa_item KLM-002-1: ok
+✔ periksa_item: periksa_item KLM-002-2: ok
 ✔ putuskan: putuskan: setujui_penuh, perlu_persetujuan=False
 ✔ tulis_memo: tulis_memo: draf ke-1
 ✔ nilai_memo: nilai_memo: skor 5, lolos=False
@@ -4040,11 +4972,11 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
     log = ["muat_klaim: 2 item"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
-    log = ["periksa_item KLM-002-1: ok"]
-superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
     log = ["periksa_item KLM-002-2: ok"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
+    log = ["periksa_item KLM-002-1: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
     log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
@@ -4076,7 +5008,7 @@ superstep 10: selesai
     jawaban = "Klaim KLM-002: dibayar, dibayar Rp180.000."
     log = ["selesai: dibayar"]
 
-… (17 baris berikutnya dipotong)
+… (18 baris berikutnya dipotong)
 ```
 <!-- /output -->
 
@@ -4087,9 +5019,9 @@ Bandingkan bentuk mentah setiap mode dengan `coba_stream.py`:
 $ uv run coba_stream.py updates
 {'router': {'rute': 'klaim', 'claim_id': 'KLM-002', 'log': ['router: klaim (menyebut nomor klaim)']}}
 {'muat_klaim': {'klaim': {'claim_id': 'KLM-002', 'karyawan_id': 'EMP-02', 'judul': 'Rapat vendor di Sudirman', 'tanggal': '2026-11-05', 'item': [{'item_id': 'KLM-002-1', 'kategori': 'transport', 'jumlah': 85000, 'ada_struk': True, 'keterangan': 'Taksi pulang pergi'}, {'item_id': 'KLM-002-2', 'kategori': 'makan', 'jumlah': 95000, 'ada_struk': True, 'keterangan': 'Makan siang'}]}, 'log': ['muat_klaim: 2 item']}}
-{'cek_karyawan': {'profil': {'karyawan_id': 'EMP-02', 'nama': 'Sari Wulandari', 'departemen': 'Marketing', 'atasan': 'Tono (Marketing Lead)', 'sisa_anggaran': 3000000}, 'log': ['cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000']}}
-{'periksa_item': {'hasil_item': [{'item_id': 'KLM-002-1', 'kategori': 'transport', 'diajukan': 85000, 'disetujui': 85000, 'status': 'ok', 'alasan': 'sesuai aturan'}], 'log': ['periksa_item KLM-002-1: ok']}}
 {'periksa_item': {'hasil_item': [{'item_id': 'KLM-002-2', 'kategori': 'makan', 'diajukan': 95000, 'disetujui': 95000, 'status': 'ok', 'alasan': 'sesuai aturan'}], 'log': ['periksa_item KLM-002-2: ok']}}
+{'periksa_item': {'hasil_item': [{'item_id': 'KLM-002-1', 'kategori': 'transport', 'diajukan': 85000, 'disetujui': 85000, 'status': 'ok', 'alasan': 'sesuai aturan'}], 'log': ['periksa_item KLM-002-1: ok']}}
+{'cek_karyawan': {'profil': {'karyawan_id': 'EMP-02', 'nama': 'Sari Wulandari', 'departemen': 'Marketing', 'atasan': 'Tono (Marketing Lead)', 'sisa_anggaran': 3000000}, 'log': ['cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000']}}
 … (7 baris berikutnya dipotong)
 ```
 <!-- /output -->
@@ -4280,9 +5212,11 @@ from __future__ import annotations
 import operator
 from typing import Annotated, Literal, TypedDict
 
+from langchain_core.messages import AnyMessage
+from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
-Rute = Literal["klaim", "kebijakan", "klarifikasi"]
+Rute = Literal["klaim", "kebijakan", "asisten", "klarifikasi"]
 
 
 class KlaimState(TypedDict, total=False):
@@ -4290,6 +5224,8 @@ class KlaimState(TypedDict, total=False):
     permintaan: str
     rute: Rute
     claim_id: str | None
+    # agent asisten: percakapan dengan LLM (pesan pengguna, panggilan tool, hasil tool)
+    messages: Annotated[list[AnyMessage], add_messages]
     # data
     klaim: dict | None
     profil: dict
@@ -4323,7 +5259,7 @@ class ItemTask(TypedDict):
 class RuteDecision(BaseModel):
     """Field description ikut dikirim ke LLM: tulis sejelas mungkin."""
 
-    rute: Rute = Field(description="klaim (proses klaim), kebijakan (tanya aturan), atau klarifikasi")
+    rute: Rute = Field(description="klaim (proses klaim), kebijakan (tanya aturan), asisten (tanya data karyawan atau detail klaim), atau klarifikasi")
     claim_id: str | None = Field(default=None, description="Nomor klaim format KLM-XXX bila disebut")
     alasan: str = Field(description="Alasan singkat")
 
@@ -4469,11 +5405,11 @@ superstep 2: muat_klaim
     peringatan = ["KLM-004-1: keterangan berisi pola prompt injection"]
     log = ["muat_klaim: 2 item"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-004-2", "kategori": "transport", "diajukan": 280000, "disetujui": 280000, "status…
-    log = ["periksa_item KLM-004-2: ok"]
-superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-004-1", "kategori": "hotel", "diajukan": 900000, "disetujui": 750000, "status": "…
     log = ["periksa_item KLM-004-1: dipotong"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-004-2", "kategori": "transport", "diajukan": 280000, "disetujui": 280000, "status…
+    log = ["periksa_item KLM-004-2: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-04", "nama": "Dewi Lestari", "departemen": "Finance", "atasan": "Hadi (CFO)", …
     log = ["cek_karyawan: Dewi Lestari, sisa anggaran Rp5.000.000"]
@@ -4573,6 +5509,9 @@ flowchart TD
   router -.klaim.-> muat_klaim
   router -.kebijakan.-> jawab_kebijakan["jawab_kebijakan (RAG ChromaDB)"] --> E1[END]
   router -.klarifikasi.-> klarifikasi --> E2[END]
+  router -.asisten.-> asisten["asisten (function calling)"]
+  asisten -.tool_calls.-> alat["alat (tool MCP + RAG)"] --> asisten
+  asisten -.selesai.-> E4[END]
   muat_klaim --> cek_karyawan["cek_karyawan (RetryPolicy)"]
   muat_klaim -.Send x N.-> periksa_item
   cek_karyawan --> putuskan
