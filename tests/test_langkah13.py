@@ -42,3 +42,13 @@ def test_fork_dari_checkpoint_lama():
     hasil = g.invoke(None, cfg_baru)
     assert hasil["keputusan"]["total_disetujui"] == 2100000
     assert len(list(g.get_state_history(cfg("f")))) > n_awal, "fork menambah checkpoint, riwayat lama tetap ada"
+
+
+def test_app_py_chat_thread_per_permintaan():
+    """Mode chat: setiap permintaan thread sendiri, jadi dua klaim berbeda tidak saling tercampur."""
+    from conftest import app_py
+
+    out = app_py("--chat", "--thread", "c13", masukan="Proses klaim KLM-002\nProses klaim KLM-005\n").stdout
+    assert "thread: c13-1" in out and "thread: c13-2" in out, out
+    assert "graph berhenti" not in out, out
+    assert "KLM-005" in app_py("--thread", "c13-2", "--status").stdout

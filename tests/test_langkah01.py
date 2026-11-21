@@ -46,3 +46,13 @@ def test_app_py_menjalankan_graph(kode):
                        env=dict(os.environ), capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, r.stdout + r.stderr
     assert "superstep 1: router" in r.stdout and '"KLM-002"' in r.stdout, r.stdout
+
+
+def test_app_py_chat():
+    """`uv run app.py --chat`: setiap baris = satu permintaan, baris kosong = keluar."""
+    import re
+
+    from conftest import app_py
+
+    out = app_py("--chat", masukan="Proses klaim KLM-002\nTolong cek klm-005\n\n").stdout
+    assert len(re.findall(r"superstep \d+: router", out)) == 2 and '"KLM-005"' in out, out

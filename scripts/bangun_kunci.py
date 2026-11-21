@@ -287,7 +287,8 @@ def _jalankan_perintah(n: int, perintah: str, runtime: str) -> str:
 
     Didukung: `uv run app.py ...`, `uv run python ...`, `uv run pytest ...`, awalan VAR=nilai,
     `cd _kunci/langkah-NN` (diabaikan, karena perintah memang dijalankan di folder kunci),
-    dan akhiran `> /dev/null` (perintah dijalankan, keluarannya tidak ditampilkan).
+    akhiran `> /dev/null` (perintah dijalankan, keluarannya tidak ditampilkan), dan awalan
+    `printf '...' | ` (teks itu dikirim ke stdin, untuk contoh mode chat).
     """
     folder = KUNCI / f"langkah-{n:02d}"
     keluaran = []
@@ -295,7 +296,10 @@ def _jalankan_perintah(n: int, perintah: str, runtime: str) -> str:
         if cmd.startswith("cd "):
             continue
         diam = cmd.endswith(" > /dev/null")          # jalankan, tapi jangan tampilkan keluarannya
-        token = shlex.split(cmd.removesuffix(" > /dev/null"))
+        stdin, isi = None, cmd.removesuffix(" > /dev/null")
+        if m := re.match(r"^printf '([^']*)' \| (.+)$", isi):
+            stdin, isi = m.group(1).replace("\\n", "\n"), m.group(2)
+        token = shlex.split(isi)
         env = {**os.environ, "RUNTIME_DIR": runtime, "LLM_MODE": "mock", "PYTHONIOENCODING": "utf-8",
                "PYTHONDONTWRITEBYTECODE": "1", "EMBEDDING": "hash", "MAX_REVISI": "2", "MOCK_DRAF_PERTAMA_KURANG": "1",
                "HR_GAGAL_N_KALI": "0", "CRASH_SETELAH_BAYAR": "0", "COLUMNS": "120"}
@@ -311,7 +315,7 @@ def _jalankan_perintah(n: int, perintah: str, runtime: str) -> str:
             argv = [sys.executable, "-m", "pytest", *[str(ROOT / a) if a.startswith("tests/") else a for a in token[3:]]]
         else:                                       # uv run app.py ...
             argv = [sys.executable, *token[2:]]
-        r = subprocess.run(argv, cwd=folder, env=env, capture_output=True, text=True, timeout=300)
+        r = subprocess.run(argv, cwd=folder, env=env, input=stdin, capture_output=True, text=True, timeout=300)
         teks = "" if diam else (r.stdout + r.stderr).rstrip()
         keluaran.append(f"$ {cmd}" + (f"\n{teks}" if teks else ""))
     hasil = "\n\n".join(keluaran)

@@ -45,9 +45,9 @@ def cfg(thread: str) -> dict:
     return {"configurable": {"thread_id": thread}}
 
 
-def app_py(*args: str) -> subprocess.CompletedProcess:
-    """`uv run app.py ARGS` dari folder kode, dengan env test (mock, runtime sementara)."""
-    r = subprocess.run([sys.executable, "app.py", *args], cwd=KODE, env=dict(os.environ),
+def app_py(*args: str, masukan: str | None = None) -> subprocess.CompletedProcess:
+    """`uv run app.py ARGS` dari folder kode, dengan env test (mock, runtime sementara). `masukan` = stdin."""
+    r = subprocess.run([sys.executable, "app.py", *args], cwd=KODE, env=dict(os.environ), input=masukan,
                        capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, r.stdout + r.stderr
     return r

@@ -30,6 +30,7 @@ Tidak ada perintah bantu khusus. Semuanya file Python biasa dan `pytest`:
 | Perintah | Kegunaan |
 |---|---|
 | `uv run app.py "Proses klaim KLM-002"` | Jalankan graph dan tampilkan **setiap superstep**: node yang jalan dan apa yang ditulis ke state. `app.py` kamu tulis sendiri di Langkah 1 |
+| `uv run app.py --chat` | **Chat interaktif**: ketik permintaan berkali-kali. Mulai Langkah 13 setiap permintaan tersimpan sebagai thread, mulai Langkah 14 bisa menjawab persetujuan atasan |
 | `uv run app.py --gambar` | Gambar graph (ASCII) |
 | `uv run app.py "..." --thread t1` | Pakai thread tertentu (Langkah 13) |
 | `uv run app.py --thread t1 --riwayat` / `--dari <id>` / `--status` | Daftar checkpoint / time travel / state terakhir (Langkah 13) |

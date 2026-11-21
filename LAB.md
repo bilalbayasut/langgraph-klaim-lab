@@ -10,7 +10,7 @@ Setiap langkah punya pola yang sama:
 
 1. **Pahami**: konsep baru dijelaskan dulu, lengkap dengan gambar graph setelah langkah itu.
 2. **Tulis kode**: semua kode ada di LAB.md. Sangat disarankan **diketik ulang**, jangan di-copy-paste, karena dari situlah tangan dan kepala belajar.
-3. **Jalankan dan amati**: `uv run app.py "Proses klaim KLM-002"` menjalankan graph dan menampilkan **apa yang terjadi di setiap superstep**: node mana yang jalan dan apa yang ditulis ke state. `app.py` adalah file biasa yang **kamu tulis sendiri** di Langkah 1 (sekitar 40 baris), lalu kamu kembangkan di Langkah 13 sampai 14. Tidak ada alat tersembunyi.
+3. **Jalankan dan amati**: `uv run app.py "Proses klaim KLM-002"` menjalankan graph dan menampilkan **apa yang terjadi di setiap superstep**: node mana yang jalan dan apa yang ditulis ke state. Untuk mencoba banyak permintaan berturut-turut, pakai mode interaktif `uv run app.py --chat`. `app.py` adalah file biasa yang **kamu tulis sendiri** di Langkah 1 (sekitar 60 baris), lalu kamu kembangkan di langkah-langkah berikutnya. Tidak ada alat tersembunyi.
 4. **Debug**: buka graph yang sama di LangGraph Studio, atau pasang breakpoint di VS Code.
 5. **Eksperimen**: ubah sesuatu dengan sengaja, lalu lihat apa yang rusak dan kenapa.
 6. **Cek**: `uv run pytest tests/test_langkah05.py` menjalankan test langkah 5. Supaya yakin langkah lama tidak rusak, jalankan juga test sebelumnya, misalnya `uv run pytest tests/test_langkah0[1-5].py`, atau semuanya dengan `uv run pytest`.
@@ -235,11 +235,29 @@ Dockerfile, docker-compose.yml, .dockerignore
 langgraph.json      # konfigurasi LangGraph Studio
 ```
 
-### 0.5 Tiga cara menjalankan dan "melihat ke dalam" graph
+### 0.5 Perintah yang dipakai di setiap langkah
+
+Semua perintah dijalankan dari folder utama proyek. `uv run <perintah>` artinya "jalankan dengan Python dan library dari `.venv` proyek ini".
+
+| Tujuan | Perintah | Mulai |
+|---|---|---|
+| Jalankan satu permintaan, lihat setiap superstep | `uv run app.py "Proses klaim KLM-002"` | Langkah 1 |
+| **Chat interaktif**: ketik permintaan berkali-kali | `uv run app.py --chat` | Langkah 1 |
+| Chat dengan checkpoint: permintaan tersimpan sebagai thread `sesi-1`, `sesi-2`, ... | `uv run app.py --chat --thread sesi` | Langkah 13 |
+| Chat yang bisa menjawab persetujuan atasan | `uv run app.py --chat` (otomatis bertanya saat graph berhenti) | Langkah 14 |
+| Gambar graph | `uv run app.py --gambar` | Langkah 1 |
+| Semua opsi `app.py` | `uv run app.py --help` | Langkah 1 |
+| **Cek** langkah N | `uv run pytest tests/test_langkahNN.py` (misal `tests/test_langkah05.py`) | Langkah 1 |
+| Cek langkah 1 sampai N (pastikan langkah lama tidak rusak) | `uv run pytest tests/test_langkah0[1-5].py` | Langkah 1 |
+| Cek semuanya | `uv run pytest` | Langkah 1 |
+| Evaluasi perilaku agent | `uv run evaluasi.py` | Langkah 9 |
+| Studio di browser | `uv run langgraph dev` | Langkah 1 |
+
+> **`uv run chat`, `uv run cek`, `uv run lihat` tidak dipakai lagi.** Versi lama lab punya perintah singkat itu, tapi sudah diganti dengan `app.py` yang kamu tulis sendiri, supaya tidak ada yang tersembunyi. Hati-hati: `uv run chat` di macOS **tidak error**. `uv` menjalankan program bawaan sistem `/usr/sbin/chat` (alat modem lama) yang diam menunggu input. Kalau terlanjur, tekan Ctrl+C.
 
 Mulai Langkah 1, setiap graph bisa kamu jalankan dan amati dengan tiga cara:
 
-1. **`uv run app.py "..."`**: satu permintaan, ditampilkan per superstep. `app.py` kamu tulis sendiri di Langkah 1, jadi kamu tahu persis apa yang dilakukannya: memanggil `graph.stream(...)` lalu mencetak setiap event.
+1. **`uv run app.py "..."`** atau **`uv run app.py --chat`**: ditampilkan per superstep. `app.py` kamu tulis sendiri di Langkah 1, jadi kamu tahu persis apa yang dilakukannya: memanggil `graph.stream(...)` lalu mencetak setiap event.
 2. **LangGraph Studio** di browser (`uv run langgraph dev`). Graph-nya tampil visual, dan kamu bisa klik node, mengedit state, memasang breakpoint, dan melakukan time travel. Butuh akun LangSmith (gratis): daftar di https://smith.langchain.com.
 3. **Debugger VS Code**. Folder `.vscode/launch.json` sudah berisi konfigurasi "app.py: jalankan graph". Pasang breakpoint (klik di kiri nomor baris) di node mana pun, tekan F5, lalu periksa isi `state` baris demi baris.
 
@@ -435,7 +453,8 @@ Ini "pintu masuk" untuk menjalankan graph dari terminal. Kamu yang menulisnya, j
 ```python
 """Jalankan graph klaim dari terminal dan lihat apa yang terjadi di setiap superstep.
 
-    uv run app.py "Proses klaim KLM-002"
+    uv run app.py "Proses klaim KLM-002"     # satu permintaan
+    uv run app.py --chat                     # mode interaktif: ketik permintaan berkali-kali
     uv run app.py --gambar
 """
 
@@ -443,6 +462,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 
 from app.graph import build_graph
 
@@ -468,15 +488,37 @@ def jalankan(graph, masukan, config=None) -> None:
             print(f"    {field} = {ringkas(nilai)}")
 
 
+def tanya(prompt: str) -> str:
+    """input(), tapi Ctrl+D / Ctrl+C dianggap selesai (string kosong)."""
+    try:
+        teks = input(prompt).strip()
+    except (EOFError, KeyboardInterrupt):
+        return ""
+    if not sys.stdin.isatty():         # input dari pipe/file: cetak ulang supaya keluarannya mudah dibaca
+        print(teks)
+    return teks
+
+
+def chat(graph) -> None:
+    """Mode interaktif: ketik permintaan, Enter, lihat superstep-nya, ulangi. Enter kosong = keluar."""
+    print("Mode chat. Ketik permintaan lalu Enter. Enter kosong atau Ctrl+D untuk keluar.")
+    while teks := tanya("\nkamu> "):
+        jalankan(graph, {"permintaan": teks})
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Jalankan graph klaim.")
     parser.add_argument("permintaan", nargs="?", help='misal: "Proses klaim KLM-002"')
     parser.add_argument("--gambar", action="store_true", help="gambar graph, lalu keluar")
+    parser.add_argument("--chat", action="store_true", help="mode interaktif: ketik permintaan berkali-kali")
     args = parser.parse_args()
 
     graph = build_graph()
     if args.gambar:
         print(graph.get_graph().draw_ascii())
+        return
+    if args.chat:
+        chat(graph)
         return
     if not args.permintaan:
         parser.error('isi permintaan, misal: uv run app.py "Proses klaim KLM-002"')
@@ -492,6 +534,7 @@ Hal yang perlu dipahami dari `app.py`:
 - `graph.invoke(input)` hanya mengembalikan state **akhir**. `graph.stream(input, stream_mode="debug")` mengembalikan **event satu per satu selama graph berjalan**, termasuk nomor superstep-nya. Itu yang kita cetak. (Mode stream lain dibahas di Langkah 17.)
 - `node["result"]` adalah dict yang dikembalikan node, yaitu **pembaruan parsial** ke state.
 - `argparse` hanya membaca argumen terminal: `uv run app.py "..."` mengisi `args.permintaan`, dan `--gambar` mengisi `args.gambar`.
+- `--chat` hanya **loop** di sekitar `jalankan`: baca satu baris dengan `input()`, jalankan graph, ulangi. Tidak ada yang istimewa. Di Langkah 13 setiap permintaan di chat tersimpan di checkpointer, dan di Langkah 14 chat bisa menjawab persetujuan atasan.
 - `uv run app.py` = "jalankan `app.py` dengan Python dan library dari `.venv` proyek ini". Karena `app.py` ada di folder utama, `from app.graph import ...` mengambil folder `app/` di sebelahnya.
 
 ### 1.3 Jalankan dan amati
@@ -515,6 +558,31 @@ Kalau hanya butuh state akhir, panggil `invoke` langsung dari Python:
 ```text
 $ uv run python -c "from app.graph import graph; print(graph.invoke({'permintaan': 'Tolong cek klm-005 ya'}))"
 {'permintaan': 'Tolong cek klm-005 ya', 'claim_id': 'KLM-005'}
+```
+<!-- /output -->
+
+Mau mencoba beberapa permintaan tanpa mengetik `uv run` berulang kali? Pakai **mode chat**. Ketik permintaan, tekan Enter, lalu Enter kosong (atau Ctrl+D) untuk keluar:
+
+```bash
+uv run app.py --chat
+```
+
+Contoh di bawah mengirim dua baris lewat `printf` supaya bisa dicetak di sini. Saat kamu mencoba sendiri, cukup ketik langsung:
+
+<!-- output: 1 | printf 'Proses klaim KLM-002\nTolong cek klm-005 ya\n' | uv run app.py --chat -->
+```text
+$ printf 'Proses klaim KLM-002\nTolong cek klm-005 ya\n' | uv run app.py --chat
+Mode chat. Ketik permintaan lalu Enter. Enter kosong atau Ctrl+D untuk keluar.
+
+kamu> Proses klaim KLM-002
+superstep 1: router
+    claim_id = "KLM-002"
+
+kamu> Tolong cek klm-005 ya
+superstep 1: router
+    claim_id = "KLM-005"
+
+kamu>
 ```
 <!-- /output -->
 
@@ -2031,6 +2099,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Jalankan graph klaim.")
     parser.add_argument("permintaan", nargs="?", help='misal: "Proses klaim KLM-002"')
     parser.add_argument("--gambar", action="store_true", help="gambar graph, lalu keluar")
+    parser.add_argument("--chat", action="store_true", help="mode interaktif: ketik permintaan berkali-kali")
     opsi_alat(parser)
     args = parser.parse_args()
     if jalankan_alat(args):
@@ -2039,6 +2108,9 @@ def main() -> None:
     graph = build_graph()
     if args.gambar:
         print(graph.get_graph().draw_ascii())
+        return
+    if args.chat:
+        chat(graph)
         return
     if not args.permintaan:
         parser.error('isi permintaan, misal: uv run app.py "Proses klaim KLM-002"')
@@ -3146,17 +3218,17 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-003", "karyawan_id": "EMP-03", "judul": "Perlengkapan kerja remote", "tanggal": "…
     log = ["muat_klaim: 3 item"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-003-1", "kategori": "peralatan", "diajukan": 2100000, "disetujui": 2100000, "stat…
-    log = ["periksa_item KLM-003-1: ok"]
-superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-003-2", "kategori": "peralatan", "diajukan": 1350000, "disetujui": 0, "status": "…
     log = ["periksa_item KLM-003-2: ditolak"]
-superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-003-3", "kategori": "hiburan", "diajukan": 250000, "disetujui": 0, "status": "dit…
-    log = ["periksa_item KLM-003-3: ditolak"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-03", "nama": "Budi Santoso", "departemen": "IT", "atasan": "Maya (IT Manager)"…
     log = ["cek_karyawan: Budi Santoso, sisa anggaran Rp6.000.000"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-003-1", "kategori": "peralatan", "diajukan": 2100000, "disetujui": 2100000, "stat…
+    log = ["periksa_item KLM-003-1: ok"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-003-3", "kategori": "hiburan", "diajukan": 250000, "disetujui": 0, "status": "dit…
+    log = ["periksa_item KLM-003-3: ditolak"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_sebagian", "alasan": "sebagian item dipotong atau ditolak", "total_diajukan": 370…
     log = ["putuskan: setujui_sebagian, perlu_persetujuan=True"]
@@ -3428,11 +3500,11 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
     log = ["muat_klaim: 2 item"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
-    log = ["periksa_item KLM-002-2: ok"]
-superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
     log = ["periksa_item KLM-002-1: ok"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
+    log = ["periksa_item KLM-002-2: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
     log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
@@ -3567,7 +3639,7 @@ def buka_sqlite(path: str | None = None) -> SqliteSaver:
 graph = build_graph()
 ```
 
-➕ **`app.py`**: tambahkan. `main` **diganti**: sekarang graph di-compile dengan SQLite, dan ada opsi `--thread`, `--status`, `--riwayat`, `--dari`, `--ubah`.
+➕ **`app.py`**: tambahkan. `main` dan `chat` **diganti**: sekarang graph di-compile dengan SQLite, ada opsi `--thread`, `--status`, `--riwayat`, `--dari`, `--ubah`, dan setiap permintaan di mode chat tersimpan sebagai thread sendiri.
 
 <!-- kode: app.py | tambah -->
 ```python
@@ -3594,10 +3666,27 @@ def tampilkan_riwayat(graph, config) -> None:
               f"{snap.config['configurable']['checkpoint_id']}")
 
 
+def chat(graph, config) -> None:
+    """Mode interaktif. Setiap permintaan mendapat thread SENDIRI: <thread>-1, <thread>-2, ...
+
+    Kenapa tidak satu thread untuk semua? Field ber-reducer (hasil_item, log) MENUMPUK lintas run,
+    jadi klaim kedua di thread yang sama ikut membawa item klaim pertama.
+    """
+    awal = config["configurable"]["thread_id"]
+    print("Mode chat. Ketik permintaan lalu Enter. Enter kosong atau Ctrl+D untuk keluar.")
+    n = 0
+    while teks := tanya("\nkamu> "):
+        n += 1
+        cfg = {"configurable": {"thread_id": f"{awal}-{n}"}}
+        jalankan(graph, {"permintaan": teks}, cfg)
+        tampilkan_akhir(graph, cfg)                     # mencetak "thread: ...", bisa dibuka lagi dengan --status
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Jalankan graph klaim.")
     parser.add_argument("permintaan", nargs="?", help='misal: "Proses klaim KLM-002"')
     parser.add_argument("--gambar", action="store_true", help="gambar graph, lalu keluar")
+    parser.add_argument("--chat", action="store_true", help="mode interaktif: ketik permintaan berkali-kali")
     parser.add_argument("--thread", help="thread_id (default: thread baru)")
     parser.add_argument("--status", action="store_true", help="state terakhir thread")
     parser.add_argument("--riwayat", action="store_true", help="semua checkpoint thread")
@@ -3616,6 +3705,9 @@ def main() -> None:
     thread = args.thread or f"t-{uuid.uuid4().hex[:6]}"  # tanpa --thread: thread baru
     config = {"configurable": {"thread_id": thread}}
 
+    if args.chat:
+        chat(graph, config)
+        return
     if args.status:
         tampilkan_akhir(graph, config)
         return
@@ -3637,6 +3729,8 @@ def main() -> None:
     jalankan(graph, masukan, jalan_config)
     tampilkan_akhir(graph, config)                      # config tanpa checkpoint_id = checkpoint terbaru
 ```
+
+> **Kenapa chat tidak memakai satu thread untuk semua permintaan?** Coba `uv run app.py "Proses klaim KLM-002" --thread x`, lalu `uv run app.py "Proses klaim KLM-005" --thread x`. Run kedua gagal dengan `KeyError: 'KLM-002-1'`: `hasil_item` memakai reducer `operator.add`, jadi hasil pemeriksaan klaim pertama **ikut terbawa** ke klaim kedua. Thread adalah **satu pekerjaan**, bukan satu sesi pengguna. Karena itu `chat` membuat thread baru untuk setiap permintaan.
 
 Bandingkan dengan `main` versi Langkah 1. Perubahannya hanya tiga hal (dua baris alat bantu dari Langkah 7 tetap ada): graph di-compile dengan `buka_sqlite()`, setiap run punya `config` berisi `thread_id`, dan setelah run kita bisa **bertanya ke checkpointer** (`get_state`, `get_state_history`). `--gambar` tetap memakai `build_graph()` tanpa checkpointer, karena menggambar tidak butuh state.
 
@@ -3686,12 +3780,12 @@ superstep 2: muat_klaim
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
     log = ["periksa_item KLM-002-1: ok"]
-superstep 3: cek_karyawan
-    profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
-    log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
     log = ["periksa_item KLM-002-2: ok"]
+superstep 3: cek_karyawan
+    profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
+    log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_penuh", "alasan": "semua item sesuai aturan", "total_diajukan": 180000, "total_di…
     log = ["putuskan: setujui_penuh, perlu_persetujuan=False"]
@@ -3728,16 +3822,16 @@ thread: demo-13
 
 $ uv run app.py --thread demo-13 --riwayat
 step  sumber  next                           checkpoint_id
-   8  loop    -                              1f1e4e5d-cf4e-6c24-8008-b7b544ad56b2
-   7  loop    nilai_memo                     1f1e4e5d-cf4d-6f4a-8007-36f89f2b0d45
-   6  loop    tulis_memo                     1f1e4e5d-cf4d-602c-8006-6182a0ad51b3
-   5  loop    nilai_memo                     1f1e4e5d-cf4b-6ed4-8005-3676d62a1b01
-   4  loop    tulis_memo                     1f1e4e5d-cf4a-6d86-8004-82d8e42b761e
-   3  loop    putuskan                       1f1e4e5d-cf49-6fee-8003-1eef382d5d30
-   2  loop    periksa_item, periksa_item, ce 1f1e4e5d-cf46-64ac-8002-0225871e7a85
-   1  loop    muat_klaim                     1f1e4e5d-cf45-61b0-8001-a9f00b6c1f20
-   0  loop    router                         1f1e4e5d-cf43-6234-8000-b22f1e13f837
-  -1  input   __start__                      1f1e4e5d-cf41-661e-bfff-0a677611eb33
+   8  loop    -                              1f1e55ac-d8e6-62ae-8008-627cb50db6db
+   7  loop    nilai_memo                     1f1e55ac-d8e4-6c56-8007-5d87e4cbb390
+   6  loop    tulis_memo                     1f1e55ac-d8e3-64d2-8006-a3d243c0cea9
+   5  loop    nilai_memo                     1f1e55ac-d8e1-6cd6-8005-b43b0268ab5a
+   4  loop    tulis_memo                     1f1e55ac-d8e0-66b0-8004-537eb61fe89c
+   3  loop    putuskan                       1f1e55ac-d8df-62ba-8003-b967826ecb2f
+   2  loop    periksa_item, periksa_item, ce 1f1e55ac-d8da-65b2-8002-daf26184d943
+   1  loop    muat_klaim                     1f1e55ac-d8d8-6938-8001-95568cdd282f
+   0  loop    router                         1f1e55ac-d8d5-6db4-8000-c5c9c7df1901
+  -1  input   __start__                      1f1e55ac-d8d3-679e-bfff-bb60bc78d758
 ```
 <!-- /output -->
 
@@ -4111,10 +4205,35 @@ def tampilkan_akhir(graph, config) -> None:
     print(f"\nthread: {thread}")
 
 
+def chat(graph, config) -> None:
+    """Mode interaktif. Setiap permintaan = thread sendiri. Kalau graph berhenti di interrupt,
+    jawabannya diketik langsung di sini dan dikirim ke thread yang SAMA."""
+    awal = config["configurable"]["thread_id"]
+    print("Mode chat. Ketik permintaan lalu Enter. Enter kosong atau Ctrl+D untuk keluar.")
+    n, cfg = 0, None
+    while True:
+        if cfg and graph.get_state(cfg).interrupts:         # graph sedang menunggu manusia
+            aksi = tanya("\njawaban (setujui / revisi / tolak)> ")
+            if not aksi:
+                break
+            catatan = "" if aksi == "setujui" else tanya("catatan> ")
+            masukan = Command(resume={"aksi": aksi, "catatan": catatan})
+        else:
+            teks = tanya("\nkamu> ")
+            if not teks:
+                break
+            n += 1
+            cfg = {"configurable": {"thread_id": f"{awal}-{n}"}}
+            masukan = {"permintaan": teks}
+        jalankan(graph, masukan, cfg)
+        tampilkan_akhir(graph, cfg)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Jalankan graph klaim.")
     parser.add_argument("permintaan", nargs="?", help='misal: "Proses klaim KLM-002"')
     parser.add_argument("--gambar", action="store_true", help="gambar graph, lalu keluar")
+    parser.add_argument("--chat", action="store_true", help="mode interaktif: ketik permintaan berkali-kali")
     parser.add_argument("--thread", help="thread_id (default: thread baru)")
     parser.add_argument("--status", action="store_true", help="state terakhir thread")
     parser.add_argument("--riwayat", action="store_true", help="semua checkpoint thread")
@@ -4136,6 +4255,9 @@ def main() -> None:
     thread = args.thread or f"t-{uuid.uuid4().hex[:6]}"  # tanpa --thread: thread baru
     config = {"configurable": {"thread_id": thread}}
 
+    if args.chat:
+        chat(graph, config)
+        return
     if args.status:
         tampilkan_akhir(graph, config)
         return
@@ -4183,14 +4305,14 @@ superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-001-1", "kategori": "hotel", "diajukan": 650000, "disetujui": 650000, "status": "…
     log = ["periksa_item KLM-001-1: ok"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-001-2", "kategori": "makan", "diajukan": 180000, "disetujui": 150000, "status": "…
-    log = ["periksa_item KLM-001-2: dipotong"]
-superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-001-3", "kategori": "transport", "diajukan": 220000, "disetujui": 220000, "status…
     log = ["periksa_item KLM-001-3: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-01", "nama": "Andi Pratama", "departemen": "Sales", "atasan": "Rina (Sales Man…
     log = ["cek_karyawan: Andi Pratama, sisa anggaran Rp8.000.000"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-001-2", "kategori": "makan", "diajukan": 180000, "disetujui": 150000, "status": "…
+    log = ["periksa_item KLM-001-2: dipotong"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_sebagian", "alasan": "sebagian item dipotong atau ditolak", "total_diajukan": 105…
     log = ["putuskan: setujui_sebagian, perlu_persetujuan=True"]
@@ -4282,6 +4404,105 @@ uv run app.py --thread t-revisi --lanjut tolak            # -> ditolak_atasan, t
 uv run app.py "Proses klaim KLM-002"                      # auto-approve: langsung dibayar
 uv run app.py "Proses klaim KLM-005"                      # ditolak aturan: tidak ke atasan
 ```
+
+Alur yang sama terasa lebih alami di **mode chat**: saat graph berhenti, chat langsung menanyakan jawaban atasan, tanpa perlu mengetik `--lanjut` (abaikan petunjuk `--lanjut` yang tercetak, itu untuk mode satu perintah).
+
+<!-- output: 14 | printf 'Proses klaim KLM-001\nsetujui\n' | uv run app.py --chat --thread chat-14 -->
+```text
+$ printf 'Proses klaim KLM-001\nsetujui\n' | uv run app.py --chat --thread chat-14
+Mode chat. Ketik permintaan lalu Enter. Enter kosong atau Ctrl+D untuk keluar.
+
+kamu> Proses klaim KLM-001
+superstep 1: router
+    rute = "klaim"
+    claim_id = "KLM-001"
+    log = ["router: klaim (menyebut nomor klaim)"]
+superstep 2: muat_klaim
+    klaim = {"claim_id": "KLM-001", "karyawan_id": "EMP-01", "judul": "Kunjungan klien Bandung", "tanggal": "20…
+    log = ["muat_klaim: 3 item"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-001-2", "kategori": "makan", "diajukan": 180000, "disetujui": 150000, "status": "…
+    log = ["periksa_item KLM-001-2: dipotong"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-001-1", "kategori": "hotel", "diajukan": 650000, "disetujui": 650000, "status": "…
+    log = ["periksa_item KLM-001-1: ok"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-001-3", "kategori": "transport", "diajukan": 220000, "disetujui": 220000, "status…
+    log = ["periksa_item KLM-001-3: ok"]
+superstep 3: cek_karyawan
+    profil = {"karyawan_id": "EMP-01", "nama": "Andi Pratama", "departemen": "Sales", "atasan": "Rina (Sales Man…
+    log = ["cek_karyawan: Andi Pratama, sisa anggaran Rp8.000.000"]
+superstep 4: putuskan
+    keputusan = {"aksi": "setujui_sebagian", "alasan": "sebagian item dipotong atau ditolak", "total_diajukan": 105…
+    log = ["putuskan: setujui_sebagian, perlu_persetujuan=True"]
+superstep 5: tulis_memo
+    draf_memo = "Memo klaim KLM-001 (Kunjungan klien Bandung) atas nama Andi Pratama.\nKeputusan: disetujui sebagia…
+    jumlah_draf = 1
+    log = ["tulis_memo: draf ke-1"]
+superstep 6: nilai_memo
+    penilaian = {"skor": 5, "masalah": ["total disetujui Rp1.020.000 tidak disebut"], "lolos": false}
+    log = ["nilai_memo: skor 5, lolos=False"]
+superstep 7: tulis_memo
+    draf_memo = "Memo klaim KLM-001 (Kunjungan klien Bandung) atas nama Andi Pratama.\nKeputusan: disetujui sebagia…
+    jumlah_draf = 2
+    log = ["tulis_memo: draf ke-2"]
+superstep 8: nilai_memo
+    penilaian = {"skor": 8, "masalah": [], "lolos": true}
+    log = ["nilai_memo: skor 8, lolos=True"]
+superstep 9: persetujuan ⏸ memanggil interrupt
+
+⏸  berhenti di persetujuan, menunggu jawaban manusia:
+{
+  "claim_id": "KLM-001",
+  "karyawan": "Andi Pratama",
+  "atasan": "Rina (Sales Manager)",
+  "keputusan": "disetujui sebagian",
+  "total_disetujui": "Rp1.020.000",
+  "masalah_memo": [],
+  "memo": "Memo klaim KLM-001 (Kunjungan klien Bandung) atas nama Andi Pratama.\nKeputusan: disetujui sebagian. Alasan: sebagian item dipotong atau ditolak.\n- KLM-001-1 hotel: ok (sesuai aturan)\n- KLM-001-2 makan: dipotong (melebihi batas Rp150.000)\n- KLM-001-3 transport: ok (sesuai aturan)\nTotal disetujui: Rp1.020.000.",
+  "petunjuk": "Resume dengan {\"aksi\": \"setujui\" | \"revisi\" | \"tolak\", \"catatan\": \"...\"}"
+}
+
+lanjutkan: uv run app.py --thread chat-14-1 --lanjut setujui
+           uv run app.py --thread chat-14-1 --lanjut revisi --catatan "..."
+           uv run app.py --thread chat-14-1 --lanjut tolak
+
+jawaban (setujui / revisi / tolak)> setujui
+superstep 9: persetujuan
+    persetujuan = {"aksi": "setujui", "catatan": "", "oleh": "Rina (Sales Manager)"}
+    log = ["persetujuan: setujui"]
+superstep 10: bayar
+    pembayaran = {"kunci": "KLM-001:1020000", "claim_id": "KLM-001", "jumlah": 1020000, "ref": "TRF-0001", "duplikat…
+    status_akhir = "dibayar"
+    log = ["bayar: TRF-0001 duplikat=False"]
+superstep 11: selesai
+    status_akhir = "dibayar"
+    jawaban = "Klaim KLM-001: dibayar, dibayar Rp1.020.000."
+    log = ["selesai: dibayar"]
+
+state akhir (superstep 11):
+    permintaan = "Proses klaim KLM-001"
+    rute = "klaim"
+    claim_id = "KLM-001"
+    messages = []
+    klaim = {"claim_id": "KLM-001", "karyawan_id": "EMP-01", "judul": "Kunjungan klien Bandung", "tanggal": "20…
+    profil = {"karyawan_id": "EMP-01", "nama": "Andi Pratama", "departemen": "Sales", "atasan": "Rina (Sales Man…
+    hasil_item = [{"item_id": "KLM-001-1", "kategori": "hotel", "diajukan": 650000, "disetujui": 650000, "status": "…
+    keputusan = {"aksi": "setujui_sebagian", "alasan": "sebagian item dipotong atau ditolak", "total_diajukan": 105…
+    draf_memo = "Memo klaim KLM-001 (Kunjungan klien Bandung) atas nama Andi Pratama.\nKeputusan: disetujui sebagia…
+    jumlah_draf = 2
+    penilaian = {"skor": 8, "masalah": [], "lolos": true}
+    persetujuan = {"aksi": "setujui", "catatan": "", "oleh": "Rina (Sales Manager)"}
+    pembayaran = {"kunci": "KLM-001:1020000", "claim_id": "KLM-001", "jumlah": 1020000, "ref": "TRF-0001", "duplikat…
+    jawaban = "Klaim KLM-001: dibayar, dibayar Rp1.020.000."
+    status_akhir = "dibayar"
+    log = ["router: klaim (menyebut nomor klaim)", "muat_klaim: 3 item", "cek_karyawan: Andi Pratama, sisa an…
+
+thread: chat-14-1
+
+kamu>
+```
+<!-- /output -->
 
 ### 14.4 Studio
 
@@ -4605,14 +4826,14 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
     log = ["muat_klaim: 2 item"]
 superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
+    log = ["periksa_item KLM-002-1: ok"]
+superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
     log = ["periksa_item KLM-002-2: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
     log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
-superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
-    log = ["periksa_item KLM-002-1: ok"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_penuh", "alasan": "semua item sesuai aturan", "total_diajukan": 180000, "total_di…
     log = ["putuskan: setujui_penuh, perlu_persetujuan=False"]
@@ -4634,18 +4855,6 @@ superstep 8: nilai_memo
 💥 SIMULASI CRASH: transfer TRF-0001 sudah terjadi, tetapi node 'bayar' belum selesai.
 
 $ uv run app.py --thread crash-15 --lanjut
-superstep 2: muat_klaim
-    klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
-    log = ["muat_klaim: 2 item"]
-superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
-    log = ["periksa_item KLM-002-2: ok"]
-superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
-    log = ["periksa_item KLM-002-1: ok"]
-superstep 3: cek_karyawan
-    profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
-    log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_penuh", "alasan": "semua item sesuai aturan", "total_diajukan": 180000, "total_di…
     log = ["putuskan: setujui_penuh, perlu_persetujuan=False"]
@@ -5121,8 +5330,8 @@ $ uv run app.py "Proses klaim KLM-002" --pantau
 ✔ router: router: klaim (menyebut nomor klaim)
 ✔ muat_klaim: muat_klaim: 2 item
 ✔ periksa_item: periksa_item KLM-002-1: ok
-✔ cek_karyawan: cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000
 ✔ periksa_item: periksa_item KLM-002-2: ok
+✔ cek_karyawan: cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000
 ✔ putuskan: putuskan: setujui_penuh, perlu_persetujuan=False
 ✔ tulis_memo: tulis_memo: draf ke-1
 ✔ nilai_memo: nilai_memo: skor 5, lolos=False
@@ -5147,15 +5356,15 @@ superstep 1: router
 superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
     log = ["muat_klaim: 2 item"]
-superstep 3: cek_karyawan
-    profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
-    log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
     log = ["periksa_item KLM-002-1: ok"]
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
     log = ["periksa_item KLM-002-2: ok"]
+superstep 3: cek_karyawan
+    profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
+    log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_penuh", "alasan": "semua item sesuai aturan", "total_diajukan": 180000, "total_di…
     log = ["putuskan: setujui_penuh, perlu_persetujuan=False"]
@@ -5195,9 +5404,9 @@ Bandingkan bentuk mentah setiap mode dengan `coba_stream.py`:
 $ uv run coba_stream.py updates
 {'router': {'rute': 'klaim', 'claim_id': 'KLM-002', 'log': ['router: klaim (menyebut nomor klaim)']}}
 {'muat_klaim': {'klaim': {'claim_id': 'KLM-002', 'karyawan_id': 'EMP-02', 'judul': 'Rapat vendor di Sudirman', 'tanggal': '2026-11-05', 'item': [{'item_id': 'KLM-002-1', 'kategori': 'transport', 'jumlah': 85000, 'ada_struk': True, 'keterangan': 'Taksi pulang pergi'}, {'item_id': 'KLM-002-2', 'kategori': 'makan', 'jumlah': 95000, 'ada_struk': True, 'keterangan': 'Makan siang'}]}, 'log': ['muat_klaim: 2 item']}}
-{'periksa_item': {'hasil_item': [{'item_id': 'KLM-002-2', 'kategori': 'makan', 'diajukan': 95000, 'disetujui': 95000, 'status': 'ok', 'alasan': 'sesuai aturan'}], 'log': ['periksa_item KLM-002-2: ok']}}
-{'cek_karyawan': {'profil': {'karyawan_id': 'EMP-02', 'nama': 'Sari Wulandari', 'departemen': 'Marketing', 'atasan': 'Tono (Marketing Lead)', 'sisa_anggaran': 3000000, 'nik': '3174024506920002', 'no_rekening': '0123456782', 'email': 'sari.wulandari@contoh.co.id'}, 'log': ['cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000']}}
 {'periksa_item': {'hasil_item': [{'item_id': 'KLM-002-1', 'kategori': 'transport', 'diajukan': 85000, 'disetujui': 85000, 'status': 'ok', 'alasan': 'sesuai aturan'}], 'log': ['periksa_item KLM-002-1: ok']}}
+{'cek_karyawan': {'profil': {'karyawan_id': 'EMP-02', 'nama': 'Sari Wulandari', 'departemen': 'Marketing', 'atasan': 'Tono (Marketing Lead)', 'sisa_anggaran': 3000000, 'nik': '3174024506920002', 'no_rekening': '0123456782', 'email': 'sari.wulandari@contoh.co.id'}, 'log': ['cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000']}}
+{'periksa_item': {'hasil_item': [{'item_id': 'KLM-002-2', 'kategori': 'makan', 'diajukan': 95000, 'disetujui': 95000, 'status': 'ok', 'alasan': 'sesuai aturan'}], 'log': ['periksa_item KLM-002-2: ok']}}
 … (7 baris berikutnya dipotong)
 ```
 <!-- /output -->
@@ -5501,13 +5710,13 @@ def jalankan(graph, masukan, config=None) -> None:
 $ uv run app.py "Berapa sisa anggaran Sari, dan bolehkah klaim hotel tanpa struk?" --thread demo-18 > /dev/null
 
 $ uv run app.py --jejak demo-18
-graph LangGraph                 969.0 ms
+graph LangGraph                1545.8 ms
   node  router                      0.6 ms  superstep 1
-  node  asisten                     0.6 ms  superstep 2
-  node  alat                      962.4 ms  superstep 3
-    tool  profil_karyawan           504.9 ms
-    tool  cari_kebijakan            961.1 ms
-  node  asisten                     0.5 ms  superstep 4
+  node  asisten                     0.7 ms  superstep 2
+  node  alat                     1538.2 ms  superstep 3
+    tool  profil_karyawan           656.4 ms
+    tool  cari_kebijakan           1536.6 ms
+  node  asisten                     0.6 ms  superstep 4
 ```
 <!-- /output -->
 
@@ -6142,12 +6351,12 @@ superstep 2: muat_klaim
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-004-1", "kategori": "hotel", "diajukan": 900000, "disetujui": 750000, "status": "…
     log = ["periksa_item KLM-004-1: dipotong"]
-superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-004-2", "kategori": "transport", "diajukan": 280000, "disetujui": 280000, "status…
-    log = ["periksa_item KLM-004-2: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-04", "nama": "Dewi Lestari", "departemen": "Finance", "atasan": "Hadi (CFO)", …
     log = ["cek_karyawan: Dewi Lestari, sisa anggaran Rp5.000.000"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-004-2", "kategori": "transport", "diajukan": 280000, "disetujui": 280000, "status…
+    log = ["periksa_item KLM-004-2: ok"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_sebagian", "alasan": "sebagian item dipotong atau ditolak", "total_diajukan": 118…
     log = ["putuskan: setujui_sebagian, perlu_persetujuan=True"]

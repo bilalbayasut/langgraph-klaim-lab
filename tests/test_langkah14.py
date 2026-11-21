@@ -92,3 +92,11 @@ def test_app_py_berhenti_lalu_dilanjutkan_dari_proses_baru():
     assert r.returncode == 0 and "berhenti di persetujuan" in r.stdout, r.stdout + r.stderr
     r = app("--thread", "hitl-12", "--lanjut", "setujui")
     assert r.returncode == 0 and '"dibayar"' in r.stdout, r.stdout + r.stderr
+
+
+def test_app_py_chat_menjawab_interrupt():
+    """Di mode chat, interrupt langsung ditanyakan; jawaban 'setujui' melanjutkan graph."""
+    from conftest import app_py
+
+    out = app_py("--chat", "--thread", "chat-14", masukan="Proses klaim KLM-001\nsetujui\n").stdout
+    assert "jawaban (setujui / revisi / tolak)>" in out and '"dibayar"' in out, out
