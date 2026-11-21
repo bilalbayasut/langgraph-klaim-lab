@@ -37,6 +37,7 @@ Tidak ada perintah bantu khusus. Semuanya file Python biasa dan `pytest`:
 | `uv run app.py --thread t1 --lanjut setujui` | Jawab interrupt (human-in-the-loop, Langkah 14) |
 | `uv run evaluasi.py` | Evaluasi perilaku agent dengan dataset kasus (Langkah 9) |
 | `uv run app.py --mcp` | Daftar tool yang ditawarkan MCP server (Langkah 7) |
+| `uv run mcp_server/hr_finance.py --http` + `MCP_HR_FINANCE_URL=http://127.0.0.1:8001/mcp` | MCP lewat Streamable HTTP: server jalan sendiri, agent terhubung lewat URL (Langkah 7.4) |
 | `uv run app.py --potongan` / `--rag "..."` | Potongan dokumen / cari langsung di ChromaDB (Langkah 8) |
 | `uv run pytest tests/test_langkah05.py` | Test langkah 5 (`uv run pytest` = semua test) |
 | `uv run app.py --jejak <thread>` | Tracer lokal: pohon node, LLM, dan tool beserta durasinya (Langkah 18) |

@@ -128,15 +128,15 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
     peringatan = []
     log = ["muat_klaim: 2 item"]
-superstep 3: cek_karyawan
-    profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
-    log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
-superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
-    log = ["periksa_item KLM-002-1: ok"]
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
     log = ["periksa_item KLM-002-2: ok"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
+    log = ["periksa_item KLM-002-1: ok"]
+superstep 3: cek_karyawan
+    profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
+    log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_penuh", "alasan": "semua item sesuai aturan", "total_diajukan": 180000, "total_di…
     log = ["putuskan: setujui_penuh, perlu_persetujuan=False"]
@@ -1901,7 +1901,7 @@ uv run pytest tests/test_langkah06.py
 
 - **MCP server** mendaftarkan tool lengkap dengan nama, deskripsi, dan skema argumen (JSON Schema).
 - **MCP client** (di sisi agent) bertanya `list_tools` untuk mengetahui tool yang tersedia, lalu `call_tool(nama, argumen)` untuk menjalankannya.
-- **Transport:** `stdio` (server dijalankan sebagai proses anak, bicara lewat stdin/stdout. Cocok untuk lokal dan lab ini) atau **Streamable HTTP** (server jalan sendiri di jaringan. Cocok untuk aplikasi internal sungguhan).
+- **Transport:** `stdio` (server dijalankan sebagai proses anak, bicara lewat stdin/stdout. Cocok untuk lokal dan lab ini) atau **Streamable HTTP** (server jalan sendiri di jaringan. Cocok untuk aplikasi internal sungguhan, dicoba di 7.4).
 
 Bandingkan dengan Langkah 6: di sana tool adalah fungsi Python di proses yang sama. Sekarang tool tinggal di **proses lain**, ditulis oleh "tim lain", dan agent hanya tahu nama, deskripsi, serta skemanya. Dari sisi LLM tidak ada bedanya: ia tetap menerima daftar tool dan mengembalikan `tool_calls`.
 
@@ -1918,7 +1918,8 @@ Bandingkan dengan Langkah 6: di sana tool adalah fungsi Python di proses yang sa
 Proses TERPISAH dari agent. Agent tidak mengimpor kode ini; ia hanya bicara lewat protokol MCP
 (JSON-RPC di atas stdin/stdout). Di perusahaan, server seperti ini biasanya dibuat oleh tim pemilik data.
 
-    uv run mcp_server/hr_finance.py        # jalan sebagai server stdio (menunggu client, Ctrl+C untuk berhenti)
+    uv run mcp_server/hr_finance.py          # server stdio (menunggu client, Ctrl+C untuk berhenti)
+    uv run mcp_server/hr_finance.py --http   # layanan HTTP di http://127.0.0.1:8001/mcp (Langkah 7.4)
 """
 
 from __future__ import annotations
@@ -2161,7 +2162,136 @@ superstep 4: asisten
 ```
 <!-- /output -->
 
-### 7.4 Inspeksi server dengan MCP Inspector (opsional)
+### 7.4 MCP server di mesin lain: Streamable HTTP
+
+Di 7.2, client **menyalakan sendiri** server-nya sebagai proses anak (transport **stdio**). Itu praktis di laptop, tapi aplikasi internal perusahaan tidak bekerja seperti itu. Aplikasi HR/Finance sungguhan jalan di server milik tim HR, sudah menyala sebelum agent datang, dan dipakai banyak sistem sekaligus. Agent harus **terhubung lewat jaringan**. Untuk itu MCP punya transport kedua: **Streamable HTTP**.
+
+```mermaid
+flowchart LR
+  subgraph S["stdio (7.2)"]
+    a1["agent (app.py)"] -- "menyalakan proses anak,<br/>bicara lewat stdin/stdout" --> s1["hr_finance.py"]
+  end
+  subgraph H["Streamable HTTP (7.4)"]
+    a2["agent (app.py)"] -- "HTTP POST<br/>http://host:8001/mcp" --> s2["hr_finance.py --http<br/>(sudah jalan sendiri)"]
+    a3["agent lain"] --> s2
+  end
+```
+
+| | stdio | Streamable HTTP |
+|---|---|---|
+| Siapa menyalakan server | client, setiap kali butuh | tim pemilik aplikasi, server jalan terus |
+| Letak server | laptop yang sama dengan agent | di mana saja yang terjangkau jaringan |
+| Isi pesan | JSON-RPC MCP | JSON-RPC MCP yang **sama persis**, dibungkus HTTP |
+| Biaya per panggilan tool (di lab ini) | buka proses baru, sekitar 1 detik | satu request HTTP, puluhan milidetik |
+| Dipakai oleh | satu client | banyak agent sekaligus |
+| Autentikasi | tidak perlu (proses milikmu sendiri) | **wajib** di luar laptop: siapa pun di jaringan bisa memanggil tool |
+
+Yang **tidak berubah sama sekali**: tool di server, deskripsi dan skemanya, adapter `ke_tool_langchain`, agent `asisten`, dan graph. Protokolnya sama, hanya "kabelnya" yang diganti. Perubahannya cukup di dua tempat: cara server dijalankan, dan cara client terhubung.
+
+➕ **`mcp_server/hr_finance.py`**: tambahkan. Blok `if __name__ == "__main__":` **diganti**: server bisa jalan sebagai stdio (default) atau sebagai layanan HTTP (`--http`).
+
+<!-- kode: mcp_server/hr_finance.py | tambah -->
+```python
+import argparse
+import sys
+
+
+if __name__ == "__main__":
+    p = argparse.ArgumentParser(description="MCP server HR/Finance (tiruan)")
+    p.add_argument("--http", action="store_true", help="jalan sebagai layanan Streamable HTTP (default: stdio)")
+    p.add_argument("--host", default="127.0.0.1", help="0.0.0.0 = terima koneksi dari mesin lain / container lain")
+    p.add_argument("--port", type=int, default=8001)
+    a = p.parse_args()
+    if a.http:
+        # stderr, bukan stdout: di mode stdio, stdout adalah jalur protokol dan tidak boleh dikotori print.
+        print(f"MCP server HR/Finance: http://{a.host}:{a.port}/mcp  (Ctrl+C untuk berhenti)", file=sys.stderr)
+        server.run("streamable-http", host=a.host, port=a.port)
+    else:
+        server.run("stdio")
+```
+
+`server.run("streamable-http", ...)` menyalakan web server kecil (uvicorn) yang menerima pesan MCP di path `/mcp`. Tool-nya tetap fungsi yang sama dengan dekorator `@server.tool`.
+
+➕ **`app/mcp_klien.py`**: tambahkan. `server_hr` **diganti**.
+
+<!-- kode: app/mcp_klien.py | tambah -->
+```python
+def server_hr() -> StdioServerParameters | str:
+    """Cara terhubung ke server HR.
+
+    MCP_HR_FINANCE_URL diisi (misal http://127.0.0.1:8001/mcp) -> Streamable HTTP ke server yang SUDAH jalan.
+    Kosong -> stdio: client menyalakan server sebagai proses anak (seperti sebelumnya).
+    """
+    if url := os.environ.get("MCP_HR_FINANCE_URL"):
+        return url
+    return StdioServerParameters(command=sys.executable, args=[str(SERVER_HR)],
+                                 env=dict(os.environ))     # teruskan env (RUNTIME_DIR, dll.) ke server
+```
+
+Kenapa cukup satu `if`? Karena `Client` dari SDK MCP menerima dua bentuk: `StdioServerParameters` (nyalakan proses, bicara lewat stdin/stdout) atau **string URL** (sambung lewat Streamable HTTP). `daftar_tool` dan `panggil_tool` tetap memanggil `Client(server_hr())` tanpa perubahan.
+
+Coba dengan **dua terminal**:
+
+```bash
+# Terminal 1: nyalakan server HR sebagai layanan. Biarkan jalan.
+uv run mcp_server/hr_finance.py --http
+
+# Terminal 2: agent terhubung lewat URL
+export MCP_HR_FINANCE_URL=http://127.0.0.1:8001/mcp
+uv run app.py --mcp
+uv run app.py "Berapa sisa anggaran Sari dan siapa atasannya?"
+```
+
+Contoh keluarannya:
+
+```text
+# --- terminal 1 ---
+$ uv run mcp_server/hr_finance.py --http
+MCP server HR/Finance: http://127.0.0.1:8001/mcp  (Ctrl+C untuk berhenti)
+INFO:     Uvicorn running on http://127.0.0.1:8001 (Press CTRL+C to quit)
+INFO:     127.0.0.1:61118 - "POST /mcp HTTP/1.1" 200 OK      <- dari `--mcp`: buka sesi, list_tools
+INFO:     127.0.0.1:61118 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61121 - "POST /mcp HTTP/1.1" 200 OK      <- dari pertanyaan: list_tools saat graph dibangun
+INFO:     127.0.0.1:61121 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61122 - "POST /mcp HTTP/1.1" 200 OK      <- call_tool profil_karyawan
+INFO:     127.0.0.1:61122 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61122 - "POST /mcp HTTP/1.1" 200 OK
+
+# --- terminal 2 ---
+$ uv run app.py --mcp
+profil_karyawan
+    Profil karyawan: departemen, atasan, dan sisa anggaran reimbursement tahun ini.
+    argumen: {'nama': {'title': 'Nama', 'type': 'string'}}
+detail_klaim
+    Detail klaim reimbursement: judul, tanggal, pengaju, daftar item, dan total diajukan.
+    argumen: {'claim_id': {'title': 'Claim Id', 'type': 'string'}}
+
+$ uv run app.py "Berapa sisa anggaran Sari dan siapa atasannya?"
+...
+superstep 3: alat
+    messages = 
+        Tool profil_karyawan: Sari Wulandari (EMP-02), departemen Marketing, atasan Tono (Marketing Lead), sisa anggaran Rp3.000.000. [sumber: aplikasi HR via MCP]
+superstep 4: asisten
+    ...
+    jawaban = "Sari Wulandari (EMP-02), departemen Marketing, atasan Tono (Marketing Lead), sisa anggaran Rp3.000…
+```
+
+Perhatikan terminal 1: setiap kali agent bekerja, muncul baris `POST /mcp ... 200 OK`. Satu run agent memicu beberapa request: membuka sesi, `list_tools`, lalu `call_tool`. Jawaban agent persis sama dengan versi stdio, karena dari sudut pandang LLM tidak ada yang berubah.
+
+Dua hal untuk dicoba:
+
+1. **Server mati.** Hentikan terminal 1 (Ctrl+C), lalu jalankan lagi `uv run app.py --mcp` di terminal 2. Sekarang errornya `ConnectError: All connection attempts failed`: server tidak bisa dihubungi, bukan file tidak ditemukan. Inilah kegagalan khas layanan jaringan, dan alasan retry di Langkah 15 penting.
+2. **Kembali ke stdio.** `unset MCP_HR_FINANCE_URL`, lalu jalankan lagi. Agent kembali menyalakan server sendiri. Test dan langkah-langkah berikutnya memakai stdio, jadi server HTTP tidak perlu dinyalakan terus.
+
+**Menuju aplikasi internal sungguhan.** Kode di atas cukup untuk laptop. Sebelum agent dihubungkan ke aplikasi perusahaan, pastikan lima hal ini:
+
+1. **Server milik tim aplikasi.** MCP server di-deploy di samping aplikasinya (misalnya satu container), dan dirawat oleh tim yang memahami datanya. Tim agent cukup tahu URL-nya. Di `docker-compose.yml` (Langkah 19), server MCP bisa menjadi *service* sendiri, dan agent memakai `MCP_HR_FINANCE_URL=http://<nama-service>:8001/mcp`.
+2. **Autentikasi wajib.** Server HTTP tanpa autentikasi berarti siapa pun yang bisa menjangkau jaringan bisa memanggil tool, termasuk tool yang mengubah data. SDK MCP mendukung token dan OAuth (parameter `token_verifier` dan `auth` di `MCPServer`). Token disimpan sebagai secret, bukan di kode (Langkah 24).
+3. **HTTPS** begitu lalu lintasnya keluar dari laptop.
+4. **`--host`.** Default `127.0.0.1` hanya menerima koneksi dari laptop sendiri, dan SDK otomatis menyalakan perlindungan *DNS rebinding*. Di container atau server, pakai `--host 0.0.0.0`, lalu batasi siapa yang boleh masuk lewat firewall atau jaringan internal.
+5. **Least privilege.** Pisahkan server baca dan server tulis, dan beri token berbeda per agent. Detailnya di Langkah 23 dan 24.
+
+### 7.5 Inspeksi server dengan MCP Inspector (opsional)
 
 MCP Inspector adalah UI web resmi untuk mencoba MCP server tanpa agent. Butuh Node.js:
 
@@ -2171,13 +2301,15 @@ npx @modelcontextprotocol/inspector uv run mcp_server/hr_finance.py
 
 Buka URL yang dicetak, klik **Connect**, lalu buka tab **Tools**. Pilih `profil_karyawan`, isi `nama`, lalu klik **Run Tool**. Inilah yang dilakukan agent di balik layar.
 
-### 7.5 Eksperimen
+Untuk server HTTP dari 7.4: jalankan `npx @modelcontextprotocol/inspector` saja, pilih transport **Streamable HTTP**, isi URL `http://127.0.0.1:8001/mcp`, lalu **Connect**.
+
+### 7.6 Eksperimen
 
 1. **Tambah tool di server, tanpa mengubah agent.** Di `hr_finance.py`, tambahkan tool `daftar_karyawan_departemen(departemen: str) -> str`. Jalankan `uv run app.py --mcp`: tool baru langsung muncul. Dengan `LLM_MODE=live`, tanyakan *"Siapa saja karyawan di departemen IT?"*. Agent memakai tool baru itu tanpa satu baris pun berubah di `app/`.
 2. **Server mati.** Ubah sementara `SERVER_HR` ke path yang salah, lalu jalankan `uv run app.py "Berapa sisa anggaran Sari?"`. Baca errornya: graph gagal saat dibangun, karena daftar tool diambil dari server. Bagaimana sebaiknya agent bersikap kalau aplikasi internal sedang down? (Kita bahas retry di Langkah 15.)
 3. **Debug:** pasang breakpoint di `panggil_tool`, lalu jalankan lewat F5. Periksa `hasil.content`.
 
-### 7.6 Cek
+### 7.7 Cek
 
 ```bash
 uv run pytest tests/test_langkah07.py
@@ -3224,11 +3356,11 @@ superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-03", "nama": "Budi Santoso", "departemen": "IT", "atasan": "Maya (IT Manager)"…
     log = ["cek_karyawan: Budi Santoso, sisa anggaran Rp6.000.000"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-003-1", "kategori": "peralatan", "diajukan": 2100000, "disetujui": 2100000, "stat…
-    log = ["periksa_item KLM-003-1: ok"]
-superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-003-3", "kategori": "hiburan", "diajukan": 250000, "disetujui": 0, "status": "dit…
     log = ["periksa_item KLM-003-3: ditolak"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-003-1", "kategori": "peralatan", "diajukan": 2100000, "disetujui": 2100000, "stat…
+    log = ["periksa_item KLM-003-1: ok"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_sebagian", "alasan": "sebagian item dipotong atau ditolak", "total_diajukan": 370…
     log = ["putuskan: setujui_sebagian, perlu_persetujuan=True"]
@@ -3780,12 +3912,12 @@ superstep 2: muat_klaim
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
     log = ["periksa_item KLM-002-1: ok"]
-superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
-    log = ["periksa_item KLM-002-2: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
     log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
+    log = ["periksa_item KLM-002-2: ok"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_penuh", "alasan": "semua item sesuai aturan", "total_diajukan": 180000, "total_di…
     log = ["putuskan: setujui_penuh, perlu_persetujuan=False"]
@@ -3822,16 +3954,16 @@ thread: demo-13
 
 $ uv run app.py --thread demo-13 --riwayat
 step  sumber  next                           checkpoint_id
-   8  loop    -                              1f1e55ac-d8e6-62ae-8008-627cb50db6db
-   7  loop    nilai_memo                     1f1e55ac-d8e4-6c56-8007-5d87e4cbb390
-   6  loop    tulis_memo                     1f1e55ac-d8e3-64d2-8006-a3d243c0cea9
-   5  loop    nilai_memo                     1f1e55ac-d8e1-6cd6-8005-b43b0268ab5a
-   4  loop    tulis_memo                     1f1e55ac-d8e0-66b0-8004-537eb61fe89c
-   3  loop    putuskan                       1f1e55ac-d8df-62ba-8003-b967826ecb2f
-   2  loop    periksa_item, periksa_item, ce 1f1e55ac-d8da-65b2-8002-daf26184d943
-   1  loop    muat_klaim                     1f1e55ac-d8d8-6938-8001-95568cdd282f
-   0  loop    router                         1f1e55ac-d8d5-6db4-8000-c5c9c7df1901
-  -1  input   __start__                      1f1e55ac-d8d3-679e-bfff-bb60bc78d758
+   8  loop    -                              1f1e55f5-7b77-6390-8008-a940244b5829
+   7  loop    nilai_memo                     1f1e55f5-7b75-6f2c-8007-e923b0e9d07a
+   6  loop    tulis_memo                     1f1e55f5-7b74-6abe-8006-5b118e980ee3
+   5  loop    nilai_memo                     1f1e55f5-7b73-64b6-8005-8bef2a5faa17
+   4  loop    tulis_memo                     1f1e55f5-7b71-6ec2-8004-387f9da7f2dd
+   3  loop    putuskan                       1f1e55f5-7b70-6842-8003-85a7a2cdd365
+   2  loop    periksa_item, periksa_item, ce 1f1e55f5-7b68-64da-8002-943a40742ccf
+   1  loop    muat_klaim                     1f1e55f5-7b65-6c9e-8001-012f20dc6dcc
+   0  loop    router                         1f1e55f5-7b63-6764-8000-1c55c659e29a
+  -1  input   __start__                      1f1e55f5-7b60-6e88-bfff-2a7339c7ff33
 ```
 <!-- /output -->
 
@@ -4302,6 +4434,9 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-001", "karyawan_id": "EMP-01", "judul": "Kunjungan klien Bandung", "tanggal": "20…
     log = ["muat_klaim: 3 item"]
 superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-001-2", "kategori": "makan", "diajukan": 180000, "disetujui": 150000, "status": "…
+    log = ["periksa_item KLM-001-2: dipotong"]
+superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-001-1", "kategori": "hotel", "diajukan": 650000, "disetujui": 650000, "status": "…
     log = ["periksa_item KLM-001-1: ok"]
 superstep 3: periksa_item
@@ -4310,9 +4445,6 @@ superstep 3: periksa_item
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-01", "nama": "Andi Pratama", "departemen": "Sales", "atasan": "Rina (Sales Man…
     log = ["cek_karyawan: Andi Pratama, sisa anggaran Rp8.000.000"]
-superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-001-2", "kategori": "makan", "diajukan": 180000, "disetujui": 150000, "status": "…
-    log = ["periksa_item KLM-001-2: dipotong"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_sebagian", "alasan": "sebagian item dipotong atau ditolak", "total_diajukan": 105…
     log = ["putuskan: setujui_sebagian, perlu_persetujuan=True"]
@@ -4421,14 +4553,14 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-001", "karyawan_id": "EMP-01", "judul": "Kunjungan klien Bandung", "tanggal": "20…
     log = ["muat_klaim: 3 item"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-001-2", "kategori": "makan", "diajukan": 180000, "disetujui": 150000, "status": "…
-    log = ["periksa_item KLM-001-2: dipotong"]
-superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-001-1", "kategori": "hotel", "diajukan": 650000, "disetujui": 650000, "status": "…
     log = ["periksa_item KLM-001-1: ok"]
 superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-001-3", "kategori": "transport", "diajukan": 220000, "disetujui": 220000, "status…
     log = ["periksa_item KLM-001-3: ok"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-001-2", "kategori": "makan", "diajukan": 180000, "disetujui": 150000, "status": "…
+    log = ["periksa_item KLM-001-2: dipotong"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-01", "nama": "Andi Pratama", "departemen": "Sales", "atasan": "Rina (Sales Man…
     log = ["cek_karyawan: Andi Pratama, sisa anggaran Rp8.000.000"]
@@ -4826,14 +4958,14 @@ superstep 2: muat_klaim
     klaim = {"claim_id": "KLM-002", "karyawan_id": "EMP-02", "judul": "Rapat vendor di Sudirman", "tanggal": "2…
     log = ["muat_klaim: 2 item"]
 superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
-    log = ["periksa_item KLM-002-1: ok"]
-superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-002-2", "kategori": "makan", "diajukan": 95000, "disetujui": 95000, "status": "ok…
     log = ["periksa_item KLM-002-2: ok"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-02", "nama": "Sari Wulandari", "departemen": "Marketing", "atasan": "Tono (Mar…
     log = ["cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000"]
+superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-002-1", "kategori": "transport", "diajukan": 85000, "disetujui": 85000, "status":…
+    log = ["periksa_item KLM-002-1: ok"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_penuh", "alasan": "semua item sesuai aturan", "total_diajukan": 180000, "total_di…
     log = ["putuskan: setujui_penuh, perlu_persetujuan=False"]
@@ -5329,8 +5461,8 @@ for potongan in graph.stream({"permintaan": "Proses klaim KLM-002"}, stream_mode
 $ uv run app.py "Proses klaim KLM-002" --pantau
 ✔ router: router: klaim (menyebut nomor klaim)
 ✔ muat_klaim: muat_klaim: 2 item
-✔ periksa_item: periksa_item KLM-002-1: ok
 ✔ periksa_item: periksa_item KLM-002-2: ok
+✔ periksa_item: periksa_item KLM-002-1: ok
 ✔ cek_karyawan: cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000
 ✔ putuskan: putuskan: setujui_penuh, perlu_persetujuan=False
 ✔ tulis_memo: tulis_memo: draf ke-1
@@ -5405,8 +5537,8 @@ $ uv run coba_stream.py updates
 {'router': {'rute': 'klaim', 'claim_id': 'KLM-002', 'log': ['router: klaim (menyebut nomor klaim)']}}
 {'muat_klaim': {'klaim': {'claim_id': 'KLM-002', 'karyawan_id': 'EMP-02', 'judul': 'Rapat vendor di Sudirman', 'tanggal': '2026-11-05', 'item': [{'item_id': 'KLM-002-1', 'kategori': 'transport', 'jumlah': 85000, 'ada_struk': True, 'keterangan': 'Taksi pulang pergi'}, {'item_id': 'KLM-002-2', 'kategori': 'makan', 'jumlah': 95000, 'ada_struk': True, 'keterangan': 'Makan siang'}]}, 'log': ['muat_klaim: 2 item']}}
 {'periksa_item': {'hasil_item': [{'item_id': 'KLM-002-1', 'kategori': 'transport', 'diajukan': 85000, 'disetujui': 85000, 'status': 'ok', 'alasan': 'sesuai aturan'}], 'log': ['periksa_item KLM-002-1: ok']}}
-{'cek_karyawan': {'profil': {'karyawan_id': 'EMP-02', 'nama': 'Sari Wulandari', 'departemen': 'Marketing', 'atasan': 'Tono (Marketing Lead)', 'sisa_anggaran': 3000000, 'nik': '3174024506920002', 'no_rekening': '0123456782', 'email': 'sari.wulandari@contoh.co.id'}, 'log': ['cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000']}}
 {'periksa_item': {'hasil_item': [{'item_id': 'KLM-002-2', 'kategori': 'makan', 'diajukan': 95000, 'disetujui': 95000, 'status': 'ok', 'alasan': 'sesuai aturan'}], 'log': ['periksa_item KLM-002-2: ok']}}
+{'cek_karyawan': {'profil': {'karyawan_id': 'EMP-02', 'nama': 'Sari Wulandari', 'departemen': 'Marketing', 'atasan': 'Tono (Marketing Lead)', 'sisa_anggaran': 3000000, 'nik': '3174024506920002', 'no_rekening': '0123456782', 'email': 'sari.wulandari@contoh.co.id'}, 'log': ['cek_karyawan: Sari Wulandari, sisa anggaran Rp3.000.000']}}
 … (7 baris berikutnya dipotong)
 ```
 <!-- /output -->
@@ -5710,13 +5842,13 @@ def jalankan(graph, masukan, config=None) -> None:
 $ uv run app.py "Berapa sisa anggaran Sari, dan bolehkah klaim hotel tanpa struk?" --thread demo-18 > /dev/null
 
 $ uv run app.py --jejak demo-18
-graph LangGraph                1545.8 ms
-  node  router                      0.6 ms  superstep 1
-  node  asisten                     0.7 ms  superstep 2
-  node  alat                     1538.2 ms  superstep 3
-    tool  profil_karyawan           656.4 ms
-    tool  cari_kebijakan           1536.6 ms
-  node  asisten                     0.6 ms  superstep 4
+graph LangGraph                1572.1 ms
+  node  router                      0.9 ms  superstep 1
+  node  asisten                     1.1 ms  superstep 2
+  node  alat                     1562.1 ms  superstep 3
+    tool  profil_karyawan           580.7 ms
+    tool  cari_kebijakan           1559.7 ms
+  node  asisten                     0.7 ms  superstep 4
 ```
 <!-- /output -->
 
@@ -6349,14 +6481,14 @@ superstep 2: muat_klaim
     peringatan = ["KLM-004-1: keterangan berisi pola prompt injection"]
     log = ["muat_klaim: 2 item"]
 superstep 3: periksa_item
+    hasil_item = [{"item_id": "KLM-004-2", "kategori": "transport", "diajukan": 280000, "disetujui": 280000, "status…
+    log = ["periksa_item KLM-004-2: ok"]
+superstep 3: periksa_item
     hasil_item = [{"item_id": "KLM-004-1", "kategori": "hotel", "diajukan": 900000, "disetujui": 750000, "status": "…
     log = ["periksa_item KLM-004-1: dipotong"]
 superstep 3: cek_karyawan
     profil = {"karyawan_id": "EMP-04", "nama": "Dewi Lestari", "departemen": "Finance", "atasan": "Hadi (CFO)", …
     log = ["cek_karyawan: Dewi Lestari, sisa anggaran Rp5.000.000"]
-superstep 3: periksa_item
-    hasil_item = [{"item_id": "KLM-004-2", "kategori": "transport", "diajukan": 280000, "disetujui": 280000, "status…
-    log = ["periksa_item KLM-004-2: ok"]
 superstep 4: putuskan
     keputusan = {"aksi": "setujui_sebagian", "alasan": "sebagian item dipotong atau ditolak", "total_diajukan": 118…
     log = ["putuskan: setujui_sebagian, perlu_persetujuan=True"]
@@ -6706,6 +6838,9 @@ if __name__ == "__main__":
 """Client MCP minimal: tool dari beberapa MCP server -> tool LangChain yang bisa dipakai ToolNode.
 
     uv run app.py --mcp        # tampilkan tool yang DITERIMA dan yang DITOLAK
+
+Setiap server bisa lewat stdio (default) atau Streamable HTTP: isi MCP_<NAMA>_URL,
+misal MCP_HR_FINANCE_URL=http://127.0.0.1:8001/mcp (Langkah 7.4).
 """
 
 from __future__ import annotations
@@ -6735,6 +6870,13 @@ def params(file: Path) -> StdioServerParameters:
     return StdioServerParameters(command=sys.executable, args=[str(file)], env=dict(os.environ))
 
 
+def koneksi(server: str) -> StdioServerParameters | str:
+    """MCP_<NAMA>_URL diisi -> Streamable HTTP ke server yang sudah jalan. Kosong -> stdio (proses anak)."""
+    if url := os.environ.get(f"MCP_{server.upper()}_URL"):
+        return url
+    return params(SERVER_MCP[server])
+
+
 def _jalankan(coro):
     """asyncio.run, tapi tetap aman kalau dipanggil dari dalam event loop (misal server Studio)."""
     try:
@@ -6746,12 +6888,12 @@ def _jalankan(coro):
 
 
 async def daftar_tool(server: str = "hr_finance") -> list:
-    async with Client(params(SERVER_MCP[server])) as client:
+    async with Client(koneksi(server)) as client:
         return (await client.list_tools()).tools
 
 
 async def panggil_tool(nama: str, argumen: dict, server: str = "hr_finance") -> str:
-    async with Client(params(SERVER_MCP[server])) as client:
+    async with Client(koneksi(server)) as client:
         hasil = await client.call_tool(nama, argumen)
     teks = "\n".join(getattr(blok, "text", "") for blok in hasil.content)
     return f"ERROR dari MCP server: {teks}" if hasil.is_error else teks
@@ -7302,7 +7444,8 @@ Kerangka lab ini sengaja dibuat supaya domainnya bisa ditukar. Untuk use case ba
 """TEMPLATE MCP server untuk capstone. Ganti data dan tool sesuai use case tim.
 
 Contoh di bawah: aplikasi monitoring kebun (sintetis).
-    uv run mcp_server/template_usecase.py
+    uv run mcp_server/template_usecase.py            # stdio
+    uv run mcp_server/template_usecase.py --http     # layanan HTTP di http://127.0.0.1:8002/mcp (Langkah 7.4)
 
 Pedoman:
 - Satu tool = satu pertanyaan bisnis yang jelas. Docstring = petunjuk untuk LLM, tulis dengan baik.
@@ -7312,6 +7455,9 @@ Pedoman:
 """
 
 from __future__ import annotations
+
+import argparse
+import sys
 
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
@@ -7353,7 +7499,17 @@ def jadwalkan_irigasi(blok_id: str, jam: str) -> str:
 
 
 if __name__ == "__main__":
-    server.run("stdio")
+    p = argparse.ArgumentParser(description="MCP server use case tim (template capstone)")
+    p.add_argument("--http", action="store_true", help="jalan sebagai layanan Streamable HTTP (default: stdio)")
+    p.add_argument("--host", default="127.0.0.1", help="0.0.0.0 = terima koneksi dari mesin lain / container lain")
+    p.add_argument("--port", type=int, default=8002)
+    a = p.parse_args()
+    if a.http:
+        # stderr, bukan stdout: di mode stdio, stdout adalah jalur protokol dan tidak boleh dikotori print.
+        print(f"MCP server use case: http://{a.host}:{a.port}/mcp  (Ctrl+C untuk berhenti)", file=sys.stderr)
+        server.run("streamable-http", host=a.host, port=a.port)
+    else:
+        server.run("stdio")
 ```
 
 Untuk memakainya di agent: daftarkan di `SERVER_MCP` (`app/mcp_klien.py`), tambahkan nama tool baca ke `IZIN_ASISTEN`, dan tambahkan tool tulis ke `IZIN_ASISTEN` **dan** `ALAT_BERISIKO`.

@@ -39,3 +39,33 @@ def test_app_py_mcp():
 
     out = app_py("--mcp").stdout
     assert "profil_karyawan" in out and "detail_klaim" in out
+
+
+def test_mcp_lewat_streamable_http(monkeypatch, kode):
+    """Server dinyalakan sendiri dengan --http; client terhubung lewat MCP_HR_FINANCE_URL."""
+    import os
+    import socket
+    import subprocess
+    import sys
+    import time
+
+    with socket.socket() as s:                         # cari port kosong
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    server = subprocess.Popen([sys.executable, str(kode / "mcp_server" / "hr_finance.py"), "--http", "--port", str(port)],
+                              env=dict(os.environ), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        for _ in range(100):                           # tunggu server siap menerima koneksi
+            try:
+                socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
+                break
+            except OSError:
+                time.sleep(0.1)
+        monkeypatch.setenv("MCP_HR_FINANCE_URL", f"http://127.0.0.1:{port}/mcp")
+        assert {"profil_karyawan", "detail_klaim"} <= {t.name for t in asyncio.run(mcp_klien.daftar_tool())}
+        hasil = asyncio.run(mcp_klien.panggil_tool("profil_karyawan", {"nama": "Sari"}))
+        assert "Rp3.000.000" in hasil
+    finally:
+        server.terminate()
+        server.wait(timeout=10)
+
