@@ -1,0 +1,11 @@
+{
+  "version": "POL-2026.1",
+  "auto_approve_limit": 500000,
+  "categories": {
+    "transport": {"limit_per_item": 300000, "receipt_required": false},
+    "meals":     {"limit_per_item": 150000, "receipt_required": false},
+    "hotel":     {"limit_per_item": 750000, "receipt_required": true},
+    "equipment": {"limit_per_item": 2500000, "receipt_required": true},
+    "entertainment":   {"limit_per_item": 0, "receipt_required": true}
+  }
+}

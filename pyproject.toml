@@ -1,10 +1,10 @@
 [project]
-name = "langgraph-klaim-lab"
+name = "langgraph-claim-lab"
 version = "0.2.0"
-description = "Lab LangGraph dari nol, bertahap: agent klaim reimbursement karyawan (superstep, paralel, Send, RAG ChromaDB, evaluator-optimizer, human-in-the-loop, checkpoint, Studio)"
+description = "LangGraph from scratch, step by step: an employee reimbursement claim agent (supersteps, parallel branches, Send, ChromaDB RAG, evaluator-optimizer, human-in-the-loop, checkpoints, Studio)"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
-# Versi dikunci supaya perilaku lab sama dengan yang sudah dites.
+# Versions are pinned so the lab behaves exactly as tested.
 dependencies = [
     "langgraph==1.2.18",
     "langgraph-checkpoint==4.3.1",
@@ -28,9 +28,9 @@ dev = [
 ]
 
 [tool.uv]
-# Proyek ini bukan library yang dipasang; cukup jalankan file-nya langsung:
-#   uv run app.py "Proses klaim KLM-002"
-#   uv run pytest tests/test_langkah01.py
+# This project is not an installable library; just run the files directly:
+#   uv run app.py "Process claim CLM-002"
+#   uv run pytest tests/test_step01.py
 package = false
 
 [tool.pytest.ini_options]

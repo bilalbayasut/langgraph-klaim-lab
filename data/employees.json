@@ -1,0 +1,7 @@
+{
+  "EMP-01": {"name": "Andi Pratama", "department": "Sales", "manager": "Rina (Sales Manager)", "remaining_budget": 8000000, "national_id": "3273011203900001", "bank_account": "0123456781", "email": "andi.pratama@example.co.id"},
+  "EMP-02": {"name": "Sari Wulandari", "department": "Marketing", "manager": "Tono (Marketing Lead)", "remaining_budget": 3000000, "national_id": "3174024506920002", "bank_account": "0123456782", "email": "sari.wulandari@example.co.id"},
+  "EMP-03": {"name": "Budi Santoso", "department": "IT", "manager": "Maya (IT Manager)", "remaining_budget": 6000000, "national_id": "3578031108880003", "bank_account": "0123456783", "email": "budi.santoso@example.co.id"},
+  "EMP-04": {"name": "Dewi Lestari", "department": "Finance", "manager": "Hadi (CFO)", "remaining_budget": 5000000, "national_id": "3171046702910004", "bank_account": "0123456784", "email": "dewi.lestari@example.co.id"},
+  "EMP-05": {"name": "Eko Saputra", "department": "Operations", "manager": "Lina (Ops Manager)", "remaining_budget": 400000, "national_id": "3216051905930005", "bank_account": "0123456785", "email": "eko.saputra@example.co.id"}
+}

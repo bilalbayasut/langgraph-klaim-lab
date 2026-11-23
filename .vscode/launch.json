@@ -1,45 +1,45 @@
 {
-  // Debugger VS Code untuk lab ini. Pasang breakpoint di app/*.py lalu tekan F5.
-  // Butuh ekstensi "Python" (ms-python.python) dan interpreter .venv (Ctrl+Shift+P > Python: Select Interpreter).
+  // VS Code debugger for this lab. Set a breakpoint in app/*.py and press F5.
+  // Needs the "Python" extension (ms-python.python) and the .venv interpreter (Ctrl+Shift+P > Python: Select Interpreter).
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "app.py: jalankan graph",
+      "name": "app.py: run the graph",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/app.py",
-      "args": ["${input:permintaan}"],
+      "args": ["${input:request}"],
       "cwd": "${workspaceFolder}",
       "env": {"LLM_MODE": "mock"},
       "justMyCode": true,
       "console": "integratedTerminal"
     },
     {
-      "name": "app.py: lanjutkan thread (resume)",
+      "name": "app.py: resume a thread",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/app.py",
-      "args": ["--thread", "${input:thread}", "--lanjut", "${input:aksi}"],
+      "args": ["--thread", "${input:thread}", "--resume", "${input:action}"],
       "cwd": "${workspaceFolder}",
       "env": {"LLM_MODE": "mock"},
       "justMyCode": true,
       "console": "integratedTerminal"
     },
     {
-      "name": "pytest: test langkah N",
+      "name": "pytest: tests of step N",
       "type": "debugpy",
       "request": "launch",
       "module": "pytest",
-      "args": ["tests/test_langkah${input:langkah}.py", "-x"],
+      "args": ["tests/test_step${input:step}.py", "-x"],
       "cwd": "${workspaceFolder}",
       "justMyCode": true,
       "console": "integratedTerminal"
     }
   ],
   "inputs": [
-    {"id": "permintaan", "type": "promptString", "description": "Permintaan", "default": "Proses klaim KLM-001"},
+    {"id": "request", "type": "promptString", "description": "Request", "default": "Process claim CLM-001"},
     {"id": "thread", "type": "promptString", "description": "thread_id", "default": "t1"},
-    {"id": "aksi", "type": "pickString", "description": "Jawaban atasan", "options": ["setujui", "revisi", "tolak"], "default": "setujui"},
-    {"id": "langkah", "type": "promptString", "description": "Nomor langkah (dua digit, misal 05)", "default": "01"}
+    {"id": "action", "type": "pickString", "description": "Manager answer", "options": ["approve", "revise", "reject"], "default": "approve"},
+    {"id": "step", "type": "promptString", "description": "Step number (two digits, e.g. 05)", "default": "01"}
   ]
 }

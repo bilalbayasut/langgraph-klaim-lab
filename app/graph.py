@@ -1,19 +1,25 @@
+"""Assembles the nodes into a graph."""
+
 from __future__ import annotations
+
 from langgraph.graph import END, START, StateGraph
 
 from app.nodes import router
-from app.state import KlaimState
+from app.state import ClaimState
+
 
 def build_graph(checkpointer=None):
-    """Rakit lalu compile graph.
+    """Assemble and compile the graph.
 
-    checkpointer baru kita bahas di Langkah 13 (app.py dan test akan memasangnya),
-    jadi parameternya disiapkan dari sekarang.
+    We only cover the checkpointer in Step 13 (app.py and the tests will attach it),
+    so the parameter is prepared from now on.
     """
-    g = StateGraph(KlaimState)          # 1. graph dengan bentuk state KlaimState
-    g.add_node("router", router)         # 2. node bernama "router" menjalankan fungsi router
-    g.add_edge(START, "router")          # 3. mulai dari router
-    g.add_edge("router", END)            #    setelah router, selesai
+    g = StateGraph(ClaimState)          # 1. a graph with the ClaimState state shape
+    g.add_node("router", router)         # 2. a node named "router" runs the router function
+    g.add_edge(START, "router")          # 3. start at router
+    g.add_edge("router", END)            #    after router, finish
     return g.compile(checkpointer=checkpointer)
 
+
+# This is the variable LangGraph Studio reads (see langgraph.json).
 graph = build_graph()

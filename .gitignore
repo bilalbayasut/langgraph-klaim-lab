@@ -4,6 +4,6 @@ __pycache__/
 runtime/
 .langgraph_api/
 .pytest_cache/
-coba_*.py
+try_*.py
 _arsip
-_kunci
+_solutions
