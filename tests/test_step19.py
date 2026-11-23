@@ -19,13 +19,13 @@ def test_health(client):
 
 
 def test_klaim_otomatis_selesai(client):
-    r = client.post("/claim", json={"request": "Process claim CLM-002"}).json()
+    r = client.post("/claim", json={"request": "Proses klaim CLM-002"}).json()
     assert r["status"] == "finished" and r["final_status"] == "paid"
     assert r["decision"]["total_approved"] == 180000
 
 
 def test_human_in_the_loop_lewat_http(client):
-    r = client.post("/claim", json={"request": "Process claim CLM-001", "thread_id": "h1"}).json()
+    r = client.post("/claim", json={"request": "Proses klaim CLM-001", "thread_id": "h1"}).json()
     assert r["status"] == "awaiting_approval" and r["waiting"]["claim_id"] == "CLM-001"
     r = client.post("/claim/h1/resume", json={"action": "approve", "note": "ok"}).json()
     assert r["status"] == "finished" and r["final_status"] == "paid"
@@ -38,12 +38,12 @@ def test_thread_tidak_ada(client):
 
 
 def test_asisten_lewat_http(client):
-    r = client.post("/claim", json={"request": "What is Sari's remaining budget?"}).json()
+    r = client.post("/claim", json={"request": "Berapa sisa anggaran Sari?"}).json()
     assert r["route"] == "assistant" and "Rp3.000.000" in r["answer"]
 
 
 def test_stream_sse(client):
-    with client.stream("POST", "/claim/stream", json={"request": "Process claim CLM-002"}) as r:
+    with client.stream("POST", "/claim/stream", json={"request": "Proses klaim CLM-002"}) as r:
         text = "".join(r.iter_text())
     assert r.headers["content-type"].startswith("text/event-stream")
     assert "event: node" in text and "event: progress" in text and "event: finished" in text

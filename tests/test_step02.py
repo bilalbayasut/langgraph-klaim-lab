@@ -21,5 +21,5 @@ def test_router_lalu_muat_klaim():
 
 
 def test_graph_memuat_klaim():
-    s = build_graph().invoke({"request": "Process claim CLM-002"})
+    s = build_graph().invoke({"request": "Proses klaim CLM-002"})
     assert s["claim"]["employee_id"] == "EMP-02" and len(s["claim"]["items"]) == 2

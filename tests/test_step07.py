@@ -25,7 +25,7 @@ def test_tool_mcp_dibungkus_jadi_tool_langchain():
 
 def test_asisten_memakai_tool_dari_mcp():
     assert {"employee_profile", "claim_details"} <= {t.name for t in assistant_tools()}
-    s = build_graph().invoke({"request": "What is Sari's remaining budget?"})
+    s = build_graph().invoke({"request": "Berapa sisa anggaran Sari?"})
     assert "via MCP" in s["messages"][2].content and "Rp3.000.000" in s["answer"]
 
 

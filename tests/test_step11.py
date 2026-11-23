@@ -24,13 +24,13 @@ def test_periksa_item_menerima_itemtask():
 
 
 def test_semua_periksa_item_dalam_satu_superstep():
-    step = task_per_superstep(build_graph(), {"request": "Process claim CLM-003"})
+    step = task_per_superstep(build_graph(), {"request": "Proses klaim CLM-003"})
     s = superstep_dari(step, "check_item")
     assert step[s].count("check_item") == 3 and "check_employee" in step[s]
 
 
 def test_reducer_mengumpulkan_hasil():
-    s = build_graph().invoke({"request": "Process claim CLM-003"})
+    s = build_graph().invoke({"request": "Proses klaim CLM-003"})
     assert sorted(h["item_id"] for h in s["item_results"]) == ["CLM-003-1", "CLM-003-2", "CLM-003-3"]
     assert [h["item_id"] for h in s["decision"]["breakdown"]] == ["CLM-003-1", "CLM-003-2", "CLM-003-3"]
 
@@ -44,5 +44,5 @@ def test_benar_benar_paralel(monkeypatch):
 
     monkeypatch.setattr(tools, "check_item", slow)
     t0 = time.perf_counter()
-    build_graph().invoke({"request": "Process claim CLM-003"})
+    build_graph().invoke({"request": "Proses klaim CLM-003"})
     assert time.perf_counter() - t0 < 0.8, "3 items x 0.3 s must finish in ~0.3 s when parallel"

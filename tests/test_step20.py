@@ -22,7 +22,7 @@ def test_graph_untuk_studio_tanpa_checkpointer():
 
 def test_breakpoint_dan_edit_state():
     g = build_graph(InMemorySaver())
-    g.invoke({"request": "Process claim CLM-002"}, cfg("bp"), interrupt_before=["decide"])
+    g.invoke({"request": "Proses klaim CLM-002"}, cfg("bp"), interrupt_before=["decide"])
     assert g.get_state(cfg("bp")).next == ("decide",)
     profile = g.get_state(cfg("bp")).values["profile"]
     g.update_state(cfg("bp"), {"profile": {**profile, "remaining_budget": 100000}})

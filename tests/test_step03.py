@@ -19,7 +19,7 @@ def test_periksa_item_semua_status():
 
 
 def test_keputusan_klm_001():
-    s = build_graph().invoke({"request": "Process claim CLM-001"})
+    s = build_graph().invoke({"request": "Proses klaim CLM-001"})
     assert len(s["item_results"]) == 3
     k = s["decision"]
     assert (k["action"], k["total_submitted"], k["total_approved"], k["needs_approval"]) == (
@@ -29,13 +29,13 @@ def test_keputusan_klm_001():
 
 def test_keputusan_klaim_lain():
     g = build_graph()
-    k = g.invoke({"request": "Process CLM-002"})["decision"]
+    k = g.invoke({"request": "Proses CLM-002"})["decision"]
     assert (k["action"], k["total_approved"], k["needs_approval"]) == ("approve_full", 180000, False)
-    k = g.invoke({"request": "Process CLM-003"})["decision"]
+    k = g.invoke({"request": "Proses CLM-003"})["decision"]
     assert (k["action"], k["total_approved"]) == ("approve_partial", 2100000)
 
 
 def test_log_bertambah_dengan_reducer():
-    log = build_graph().invoke({"request": "Process claim CLM-001"})["log"]
+    log = build_graph().invoke({"request": "Proses klaim CLM-001"})["log"]
     for prefix in ("router", "load_claim", "decide"):
         assert any(lines.startswith(prefix) for lines in log), f"log must contain a line from {prefix}: {log}"

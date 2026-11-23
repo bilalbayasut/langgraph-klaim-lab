@@ -22,7 +22,7 @@ def test_mode_live_tanpa_key_gagal_jelas(monkeypatch):
 
 
 def test_rute_aturan_mengembalikan_pydantic():
-    d = rule_based_route("Please check CLM-003")
+    d = rule_based_route("Tolong cek CLM-003")
     assert isinstance(d, RouteDecision) and (d.route, d.claim_id) == ("claim", "CLM-003")
 
 
@@ -30,10 +30,10 @@ def test_router_memvalidasi_karangan_llm(monkeypatch):
     """The LLM 'makes up' a claim number that does not exist -> the code sends it to clarify."""
     fake = RouteDecision(route="claim", claim_id="clm-777", reason="LLM is very sure")
     monkeypatch.setattr(llm, "structured", lambda *a, **k: fake)
-    out = router({"request": "check my claim please"})
+    out = router({"request": "cek klaim saya dong"})
     assert out["route"] == "clarify" and out["claim_id"] == "CLM-777"
 
 
 def test_router_klaim_tanpa_nomor_dari_llm(monkeypatch):
     monkeypatch.setattr(llm, "structured", lambda *a, **k: RouteDecision(route="claim", reason="?"))
-    assert router({"request": "process claim saya"})["route"] == "clarify"
+    assert router({"request": "proses klaim saya"})["route"] == "clarify"

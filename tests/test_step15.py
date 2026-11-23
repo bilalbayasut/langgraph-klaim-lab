@@ -21,7 +21,7 @@ def test_retry_policy_terkonfigurasi():
 def test_api_hr_gagal_dua_kali_tetap_berhasil(monkeypatch):
     monkeypatch.setenv("HR_FAIL_TIMES", "2")
     tools.reset_hr()
-    s = build_graph(InMemorySaver()).invoke({"request": "Process CLM-002"}, cfg("r1"))
+    s = build_graph(InMemorySaver()).invoke({"request": "Proses CLM-002"}, cfg("r1"))
     assert s["final_status"] == "paid"
 
 
@@ -30,7 +30,7 @@ def test_api_hr_terus_gagal_lalu_dilanjutkan(monkeypatch):
     tools.reset_hr()
     g = build_graph(InMemorySaver())
     with pytest.raises(tools.HRTimeoutError):
-        g.invoke({"request": "Process CLM-002"}, cfg("r2"))
+        g.invoke({"request": "Proses CLM-002"}, cfg("r2"))
     assert "check_employee" in g.get_state(cfg("r2")).next
     monkeypatch.setenv("HR_FAIL_TIMES", "0")           # "API recovered"
     assert g.invoke(None, cfg("r2"))["final_status"] == "paid"
@@ -44,7 +44,7 @@ def _app(*args, **extra_env):
 
 
 def test_crash_setelah_bayar_lalu_resume_tidak_bayar_ganda(tmp_path):
-    r = _app("Process CLM-002", "--thread", "crash", CRASH_AFTER_PAYMENT="1")
+    r = _app("Proses CLM-002", "--thread", "crash", CRASH_AFTER_PAYMENT="1")
     assert r.returncode == 1, f"the process must die in the middle of the pay node\n{r.stdout}\n{r.stderr}"
     ledger = json.loads((tmp_path / "payments.json").read_text())
     assert len(ledger) == 1, "the transfer already happened before the crash"
@@ -56,7 +56,7 @@ def test_crash_setelah_bayar_lalu_resume_tidak_bayar_ganda(tmp_path):
 
 
 def test_interrupt_dan_resume_lintas_proses():
-    r = _app("Process claim CLM-003", "--thread", "hitl")
+    r = _app("Proses klaim CLM-003", "--thread", "hitl")
     assert r.returncode == 0 and "stopped at approval" in r.stdout, r.stdout + r.stderr
     r = _app("--thread", "hitl", "--resume", "approve", "--note", "ok")
     assert r.returncode == 0 and "\"paid\"" in r.stdout, r.stdout + r.stderr

@@ -40,14 +40,14 @@ def test_rute_setelah_nilai():
 
 
 def test_loop_di_graph():
-    s = build_graph().invoke({"request": "Process claim CLM-002"})
+    s = build_graph().invoke({"request": "Proses klaim CLM-002"})
     assert s["draft_count"] == 2 and s["review"]["passed"] is True
     assert sum(b.startswith("write_memo") for b in s["log"]) == 2
 
 
 def test_tanpa_jatah_revisi(monkeypatch):
     monkeypatch.setenv("MAX_REVISIONS", "0")
-    s = build_graph().invoke({"request": "Process claim CLM-002"})
+    s = build_graph().invoke({"request": "Proses klaim CLM-002"})
     assert s["draft_count"] == 1 and s["review"]["passed"] is False
 
 
@@ -55,5 +55,5 @@ def test_loop_berhenti_di_batas(monkeypatch):
     import app.nodes as n
 
     monkeypatch.setattr(n, "check_memo_rules", lambda *a: ["always fails"])
-    s = build_graph().invoke({"request": "Process claim CLM-002"})
+    s = build_graph().invoke({"request": "Proses klaim CLM-002"})
     assert s["draft_count"] == 3, "1 draft + MAX_REVISIONS(2) revisions, then stop"

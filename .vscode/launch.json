@@ -37,7 +37,7 @@
     }
   ],
   "inputs": [
-    {"id": "request", "type": "promptString", "description": "Request", "default": "Process claim CLM-001"},
+    {"id": "request", "type": "promptString", "description": "Request", "default": "Proses klaim CLM-001"},
     {"id": "thread", "type": "promptString", "description": "thread_id", "default": "t1"},
     {"id": "action", "type": "pickString", "description": "Manager answer", "options": ["approve", "revise", "reject"], "default": "approve"},
     {"id": "step", "type": "promptString", "description": "Step number (two digits, e.g. 05)", "default": "01"}

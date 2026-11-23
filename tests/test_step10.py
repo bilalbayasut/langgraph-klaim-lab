@@ -12,7 +12,7 @@ def test_cek_karyawan():
 
 
 def test_cek_karyawan_paralel_dengan_pemeriksaan_item():
-    step = task_per_superstep(build_graph(), {"request": "Process claim CLM-001"})
+    step = task_per_superstep(build_graph(), {"request": "Proses klaim CLM-001"})
     s = superstep_dari(step, "check_employee")
     assert any(n in ("check_all_items", "check_item") for n in step[s]), f"must be one superstep: {step}"
     assert sum(n == "decide" for name in step.values() for n in name) == 1, "join: decide runs once"
@@ -20,7 +20,7 @@ def test_cek_karyawan_paralel_dengan_pemeriksaan_item():
 
 
 def test_tolak_karena_anggaran():
-    s = build_graph().invoke({"request": "Process claim CLM-005"})
+    s = build_graph().invoke({"request": "Proses klaim CLM-005"})
     k = s["decision"]
     assert (k["action"], k["total_approved"], k["needs_approval"]) == ("reject", 0, False)
     assert "budget" in k["reason"] and s["profile"]["employee_id"] == "EMP-05"

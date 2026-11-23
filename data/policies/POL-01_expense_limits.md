@@ -1,10 +1,10 @@
-# POL-01 Expense limits per category
+# POL-01 Batas biaya per kategori
 
-## Limit per item
-Every claim item is compared with the per-item limit of its category: transport Rp300.000, meals Rp150.000, hotel Rp750.000 per night, and equipment Rp2.500.000.
+## Batas per item
+Setiap item klaim dibandingkan dengan batas per item untuk kategorinya: transport Rp300.000, makan Rp150.000, hotel Rp750.000 per malam, dan peralatan Rp2.500.000.
 
-## Items above the limit
-An item above the limit is still paid, but only up to the limit. The employee covers the difference.
+## Item yang melebihi batas
+Item yang melebihi batas tetap dibayar, tetapi hanya sampai batasnya. Selisihnya ditanggung karyawan sendiri.
 
-## Categories that cannot be claimed
-The entertainment category, for example streaming subscriptions, concert tickets, or karaoke, cannot be claimed at all.
+## Kategori yang tidak dapat diklaim
+Kategori hiburan, misalnya langganan streaming, tiket konser, atau karaoke, tidak dapat diklaim sama sekali.

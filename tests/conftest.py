@@ -22,6 +22,7 @@ def lab_env(monkeypatch, tmp_path):
     """Every test: mock mode, runtime (SQLite, ChromaDB, ledger) in a temporary folder, no failure simulation."""
     monkeypatch.setenv("LLM_MODE", "mock")
     monkeypatch.setenv("EMBEDDING", "hash")
+    monkeypatch.delenv("EMBEDDING_MODEL", raising=False)     # the default model, whatever .env says
     monkeypatch.setenv("MCP_HR_FINANCE_URL", "")             # stdio, unless a test sets a URL
     monkeypatch.setenv("RUNTIME_DIR", str(tmp_path))
     monkeypatch.setenv("HR_FAIL_TIMES", "0")

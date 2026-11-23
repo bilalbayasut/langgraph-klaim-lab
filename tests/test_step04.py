@@ -5,13 +5,13 @@ from app.nodes import router, route_after_router
 
 
 def test_router_menulis_rute():
-    assert router({"request": "Please process claim clm-001"})["route"] == "claim"
-    assert router({"request": "What is the meal expense limit?"})["route"] == "policy"
+    assert router({"request": "Tolong proses klaim clm-001"})["route"] == "claim"
+    assert router({"request": "Berapa batas biaya makan?"})["route"] == "policy"
     assert router({"request": "halo"})["route"] == "clarify"
 
 
 def test_router_memvalidasi_nomor_klaim():
-    out = router({"request": "Process CLM-999"})
+    out = router({"request": "Proses CLM-999"})
     assert out["route"] == "clarify" and out["claim_id"] == "CLM-999"
 
 
@@ -25,11 +25,11 @@ def test_tiga_jalan():
     g = build_graph()
     s = g.invoke({"request": "halo"})
     assert s["final_status"] == "needs_clarification" and "CLM-001" in s["answer"]
-    s = g.invoke({"request": "Process CLM-404"})
+    s = g.invoke({"request": "Proses CLM-404"})
     assert "CLM-404 not found" in s["answer"] and "decision" not in s
-    s = g.invoke({"request": "What is the hotel expense limit per night?"})
+    s = g.invoke({"request": "Berapa batas biaya hotel per malam?"})
     assert s["route"] == "policy" and s["final_status"] == "answered" and s["answer"]
-    s = g.invoke({"request": "Process claim CLM-001"})
+    s = g.invoke({"request": "Proses klaim CLM-001"})
     assert s["route"] == "claim" and "decision" in s
 
 

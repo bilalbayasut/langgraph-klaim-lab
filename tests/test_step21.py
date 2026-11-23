@@ -26,7 +26,7 @@ def test_peringatan_memaksa_persetujuan_atasan():
 
 
 def test_memo_klm_004_tidak_terpengaruh_injeksi():
-    s = build_graph().invoke({"request": "Process claim CLM-004"})
+    s = build_graph().invoke({"request": "Proses klaim CLM-004"})
     assert s["warnings"] and "CLM-004" in s["memo_draft"]
     assert "APPROVED" not in s["memo_draft"] and "partially approved" in s["memo_draft"]
     k = s["decision"]
@@ -47,6 +47,6 @@ def test_peringatan_ditunjukkan_ke_atasan():
     from conftest import cfg
     from langgraph.checkpoint.memory import InMemorySaver
 
-    s = build_graph(InMemorySaver()).invoke({"request": "Process CLM-004"}, cfg("g21"))
+    s = build_graph(InMemorySaver()).invoke({"request": "Proses CLM-004"}, cfg("g21"))
     p = s["__interrupt__"][0].value
     assert p["warnings"] and "APPROVED" not in p["memo"]

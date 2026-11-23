@@ -1,13 +1,13 @@
-# POL-03 Approval and payment
+# POL-03 Persetujuan dan pembayaran
 
-## Automatic approval
-A claim whose items all comply with the rules and whose total approved amount is at most Rp500.000 is approved automatically, without a manager.
+## Persetujuan otomatis
+Klaim yang seluruh itemnya sesuai aturan dan total disetujuinya paling banyak Rp500.000 disetujui otomatis tanpa atasan.
 
-## Manager approval
-Claims above Rp500.000, claims with some items capped or rejected, and claims with suspicious descriptions must be approved by the direct manager.
+## Persetujuan atasan
+Klaim di atas Rp500.000, klaim yang sebagian itemnya dipotong atau ditolak, serta klaim dengan keterangan mencurigakan wajib disetujui atasan langsung.
 
-## Remaining annual budget
-The approved total must not exceed the employee's remaining annual budget. If it does, the claim is rejected and the employee is referred to HR.
+## Sisa anggaran tahunan
+Total yang disetujui tidak boleh melebihi sisa anggaran tahunan karyawan. Bila melebihi, klaim ditolak dan karyawan diarahkan ke HR.
 
-## Payment transfer
-Payment is transferred once per claim after approval. The payment system uses an idempotency key, so a repeated request does not cause a double transfer.
+## Transfer pembayaran
+Pembayaran ditransfer satu kali per klaim setelah disetujui. Sistem pembayaran memakai kunci idempotensi sehingga permintaan ulang tidak menyebabkan transfer ganda.

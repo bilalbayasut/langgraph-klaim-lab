@@ -23,9 +23,9 @@ def test_supervisor_tergambar_lewat_anotasi_command():
 
 
 def test_handoff():
-    s = handoff_graph.invoke({"message": "when will my claim be paid?"})
+    s = handoff_graph.invoke({"message": "kapan klaim saya dibayar?"})
     assert s["log"] == ["receptionist -> finance_agent", "finance_agent done"]
-    s = handoff_graph.invoke({"message": "did my claim hit the budget limit?"})
+    s = handoff_graph.invoke({"message": "klaim saya kena batas anggaran?"})
     assert s["log"][0] == "receptionist -> hr_agent" and s["answer"].startswith("HR")
 
 

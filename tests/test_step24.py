@@ -22,7 +22,7 @@ def test_tool_tulis_terdaftar_dan_berisiko():
 
 def test_tool_berisiko_berhenti_menunggu_manusia():
     g = build_graph(InMemorySaver())
-    s = g.invoke({"request": "Please cancel claim CLM-003"}, _cfg("b1"))
+    s = g.invoke({"request": "Tolong batalkan klaim CLM-003"}, _cfg("b1"))
     p = s["__interrupt__"][0].value
     assert p["kind"] == "tool_approval" and p["tool"][0]["name"] == "cancel_claim"
     assert not (get_settings().runtime_dir / "cancellations.json").exists(), "no action may happen before approval"
@@ -30,7 +30,7 @@ def test_tool_berisiko_berhenti_menunggu_manusia():
 
 def test_ditolak_aksi_tidak_dijalankan():
     g = build_graph(InMemorySaver())
-    g.invoke({"request": "Please cancel claim CLM-003"}, _cfg("b2"))
+    g.invoke({"request": "Tolong batalkan klaim CLM-003"}, _cfg("b2"))
     s = g.invoke(Command(resume={"action": "reject", "note": "valid claim"}), _cfg("b2"))
     assert "REJECTED" in s["answer"] and "__interrupt__" not in s
     assert not (get_settings().runtime_dir / "cancellations.json").exists()
@@ -38,14 +38,14 @@ def test_ditolak_aksi_tidak_dijalankan():
 
 def test_disetujui_aksi_dijalankan():
     g = build_graph(InMemorySaver())
-    g.invoke({"request": "Please cancel claim CLM-003"}, _cfg("b3"))
+    g.invoke({"request": "Tolong batalkan klaim CLM-003"}, _cfg("b3"))
     s = g.invoke(Command(resume={"action": "approve"}), _cfg("b3"))
     assert "CANCELLED" in s["answer"]
     assert "CLM-003" in json.loads((get_settings().runtime_dir / "cancellations.json").read_text())
 
 
 def test_tool_aman_tidak_perlu_izin():
-    s = build_graph().invoke({"request": "What is Sari's remaining budget?"})
+    s = build_graph().invoke({"request": "Berapa sisa anggaran Sari?"})
     assert "__interrupt__" not in s and "Rp3.000.000" in s["answer"]
 
 
@@ -69,5 +69,5 @@ def test_router_kode_mencegah_batal_masuk_jalur_bayar(monkeypatch):
     from app.state import RouteDecision
 
     monkeypatch.setattr(llm, "structured", lambda *a, **k: RouteDecision(route="claim", claim_id="CLM-003", reason="LLM"))
-    assert router({"request": "Please cancel claim CLM-003"})["route"] == "assistant"
-    assert router({"request": "Process claim CLM-003"})["route"] == "claim"
+    assert router({"request": "Tolong batalkan klaim CLM-003"})["route"] == "assistant"
+    assert router({"request": "Proses klaim CLM-003"})["route"] == "claim"

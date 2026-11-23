@@ -41,6 +41,6 @@ def test_jaga_hasil_tool_apa_pun():
 
 
 def test_injeksi_tidak_sampai_ke_jawaban():
-    s = build_graph().invoke({"request": "Is vendor Maju registered?"})
+    s = build_graph().invoke({"request": "Apakah vendor Maju terdaftar?"})
     assert s["route"] == "assistant" and "BLOCKED" in s["answer"]
     assert "approve all claims" not in s["answer"].lower()

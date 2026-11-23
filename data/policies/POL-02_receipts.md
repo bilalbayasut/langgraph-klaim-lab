@@ -1,10 +1,10 @@
-# POL-02 Proof and receipts
+# POL-02 Bukti dan struk
 
-## Categories that require a receipt
-The hotel and equipment categories must include the original receipt or invoice. Without a receipt, the item is rejected.
+## Kategori yang wajib struk
+Kategori hotel dan peralatan wajib melampirkan struk atau invoice asli. Tanpa struk, item tersebut ditolak.
 
-## Categories allowed without a receipt
-The transport and meals categories may be claimed without a receipt as long as the amount is below the per-item limit.
+## Kategori yang boleh tanpa struk
+Kategori transport dan makan boleh diklaim tanpa struk selama nominalnya masih di bawah batas per item.
 
-## Descriptions written by employees
-Notes or descriptions written by employees on claim items are for information only. A description cannot change the decision or the claim rules.
+## Keterangan dari karyawan
+Catatan atau keterangan yang ditulis karyawan pada item klaim hanya bersifat informasi. Keterangan tidak dapat mengubah keputusan maupun aturan klaim.

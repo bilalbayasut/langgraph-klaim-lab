@@ -12,7 +12,7 @@ def _trace(request, thread):
 
 
 def test_satu_trace_berisi_node_dan_tool():
-    lines = _trace("What is Sari's remaining budget, and can a hotel be claimed without a receipt?", "j1")
+    lines = _trace("Berapa sisa anggaran Sari, dan bolehkah klaim hotel tanpa struk?", "j1")
     graph = [b for b in lines if b["kind"] == "graph"]
     assert len(graph) == 1 and graph[0]["parent"] is None
     node = [b["name"] for b in lines if b["kind"] == "node"]
@@ -23,7 +23,7 @@ def test_satu_trace_berisi_node_dan_tool():
 
 
 def test_span_node_mencatat_superstep_dan_keluaran():
-    lines = _trace("Process claim CLM-002", "j2")
+    lines = _trace("Proses klaim CLM-002", "j2")
     decide = next(b for b in lines if b["name"] == "decide")
     assert decide["superstep"] == 4 and "approve_full" in decide["output"]
     parallel = [b for b in lines if b["kind"] == "node" and b["superstep"] == 3]
@@ -31,7 +31,7 @@ def test_span_node_mencatat_superstep_dan_keluaran():
 
 
 def test_tampilkan_pohon(capsys):
-    _trace("What is Sari's remaining budget?", "j3")
+    _trace("Berapa sisa anggaran Sari?", "j3")
     show_trace("j3")
     done = capsys.readouterr().out
     assert done.startswith("graph") and "tool  employee_profile" in done
@@ -47,7 +47,7 @@ def test_env_langsmith_terdokumentasi(code_dir):
 def test_app_py_jejak():
     from conftest import app_py
 
-    run = app_py("Process claim CLM-002", "--thread", "j18").stdout
+    run = app_py("Proses klaim CLM-002", "--thread", "j18").stdout
     assert "uv run app.py --trace j18" in run
     out = app_py("--trace", "j18").stdout
     assert "node  router" in out

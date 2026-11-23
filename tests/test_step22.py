@@ -33,7 +33,7 @@ def test_redaksi():
 def test_state_dan_jejak_bersih():
     g = build_graph(InMemorySaver())
     cfg = {"configurable": {"thread_id": "p22"}, "callbacks": [TraceRecorder(trace_path("p22"))]}
-    g.invoke({"request": "Process claim CLM-002"}, cfg)
+    g.invoke({"request": "Proses klaim CLM-002"}, cfg)
     state = json.dumps(g.get_state(cfg).values, default=str)
     assert "3174024506920002" not in state and "0123456782" not in state
     assert "3174024506920002" not in trace_path("p22").read_text()
@@ -44,7 +44,7 @@ def test_audit_thread_bersih(capsys):
     from conftest import CODE_DIR
 
     env = dict(os.environ)
-    subprocess.run([sys.executable, "app.py", "Process claim CLM-002", "--thread", "aud"], cwd=CODE_DIR, env=env,
+    subprocess.run([sys.executable, "app.py", "Proses klaim CLM-002", "--thread", "aud"], cwd=CODE_DIR, env=env,
                    capture_output=True, check=True)
     from app.privacy import audit
     assert audit("aud") == []
@@ -53,5 +53,5 @@ def test_audit_thread_bersih(capsys):
 def test_app_py_audit():
     from conftest import app_py
 
-    app_py("Process claim CLM-002", "--thread", "aud22")
+    app_py("Proses klaim CLM-002", "--thread", "aud22")
     assert "no secret data" in app_py("--audit", "aud22").stdout
